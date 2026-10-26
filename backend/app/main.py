@@ -7,7 +7,16 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Annotated
 from uuid import uuid4
-from fastapi import Depends, FastAPI, File as UploadField, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File as UploadField,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy.exc import IntegrityError
@@ -35,6 +44,10 @@ from .retrieval import KnowledgeRetriever, as_source
 from .schemas import ChatInput, KnowledgeInput, ModelInput, OCRInput, ParseOptions, RetrievalInput
 from .security import admin, browser_header, get_kb, managed, role_header, safe_error
 from .serialize import file_dict, job_dict, kb_dict, model_dict, state_dict
+from .tasks import notify_job, recover_deliveries
+from .storage import persist, remove as remove_original
+from .uploads import router as uploads_router
+from fastapi.middleware.gzip import GZipMiddleware
 
 
 def database():
@@ -52,11 +65,34 @@ async def lifespan(app):
     if settings().environment != "production":
         init_db()
     with session_factory()() as db:
+        if engine().dialect.name == "postgresql":
+            db.execute(text("SELECT pg_advisory_xact_lock(8011391)"))
         db.execute(
             delete(QueryLog).where(
                 QueryLog.created < utcnow() - timedelta(days=settings().log_retention_days)
             )
         )
+        if not db.scalar(select(func.count()).select_from(Model)) and settings().model_bootstrap:
+            for config in json.loads(settings().model_bootstrap):
+                allowed = {
+                    k: v
+                    for k, v in config.items()
+                    if k
+                    in {
+                        "id",
+                        "name",
+                        "type",
+                        "provider",
+                        "model",
+                        "url",
+                        "dimension",
+                        "timeout",
+                        "status",
+                        "secret",
+                    }
+                }
+                db.add(Model(**allowed))
+            db.flush()
         if not db.scalar(select(func.count()).select_from(Model)):
             for kind, id, name, model, dimension in [
                 ("LLM", "llm-aihubmix", "AIHubMix · 对话", "qwen-plus", None),
@@ -86,7 +122,9 @@ async def lifespan(app):
         await asyncio.to_thread(worker.join, 3)
 
 
-app = FastAPI(title="知序知识中台 API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="知序知识中台 API", version="1.1.0", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=2048)
+app.include_router(uploads_router)
 
 
 @app.middleware("http")
@@ -145,12 +183,16 @@ def health(db: DB):
         "database": engine().dialect.name,
         "queue": settings().queue_mode,
         "mode": "live",
-        "version": "1.0.0",
+        "version": "1.1.0",
+        "storage": settings().storage_backend,
+        "uploadStrategy": "chunked" if settings().storage_backend == "vercel_blob" else "multipart",
     }
 
 
 @app.get("/api/v1/state")
-def state(db: DB, role: Role, browser: Browser):
+def state(db: DB, role: Role, browser: Browser, background_tasks: BackgroundTasks):
+    if settings().queue_mode == "vercel":
+        background_tasks.add_task(recover_deliveries)
     return state_dict(db, role, browser)
 
 
@@ -281,6 +323,8 @@ def update_kb(id: str, body: KnowledgeInput, db: DB, role: Role):
     kb.rerank_model = body.rerankModel
     kb.top_k, kb.threshold, kb.updated = body.topK, body.threshold, utcnow()
     db.commit()
+    if job:
+        notify_job(job.id)
     return {"knowledge": kb_dict(kb), "task": job_dict(job) if job else None}
 
 
@@ -294,7 +338,7 @@ def remove_kb(id: str, db: DB, role: Role):
     db.delete(kb)
     db.commit()
     for file in files:
-        file_path(file).unlink(missing_ok=True)
+        remove_original(file)
     return {"deleted": True}
 
 
@@ -360,6 +404,7 @@ async def upload(
             options_hash=hashlib.sha256(json.dumps(parsed.model_dump(), sort_keys=True).encode()).hexdigest(),
             options=parsed.model_dump(),
         )
+        await asyncio.to_thread(persist, file_id, path)
         db.add(row)
         db.flush()
         job = new_job(db, id, "parse", [file_id])
@@ -371,6 +416,7 @@ async def upload(
     except BaseException:
         path.unlink(missing_ok=True)
         raise
+    notify_job(job.id)
     return {"file": file_dict(row, db), "task": job_dict(job)}
 
 
@@ -390,6 +436,7 @@ def build(id: str, body: dict, db: DB, role: Role):
     for file_id in ids:
         db.get(File, file_id).status = "queued"
     db.commit()
+    notify_job(job.id)
     return job_dict(job)
 
 
@@ -417,6 +464,23 @@ def download(id: str, db: DB, role: Role):
     file = require_file(db, id, role)
     if not file_path(file).exists():
         raise HTTPException(404, "原文件不存在")
+    if settings().storage_backend == "vercel_blob":
+        from urllib.parse import quote
+
+        path = file_path(file)
+
+        def chunks():
+            with path.open("rb") as handle:
+                while data := handle.read(65536):
+                    yield data
+
+        return StreamingResponse(
+            chunks(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(file.name),
+            },
+        )
     return FileResponse(file_path(file), filename=file.name, media_type="application/octet-stream")
 
 
@@ -494,7 +558,7 @@ def remove_file(id: str, db: DB, role: Role):
         raise HTTPException(409, "文件正在处理，请稍后删除")
     db.delete(file)
     db.commit()
-    file_path(file).unlink(missing_ok=True)
+    remove_original(file)
     return {"deleted": True}
 
 
@@ -530,6 +594,7 @@ def retry(id: str, db: DB, role: Role):
             db.get(File, file_id).status = "queued"
 
     db.commit()
+    notify_job(created.id)
     return job_dict(created)
 
 

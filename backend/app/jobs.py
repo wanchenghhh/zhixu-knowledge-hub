@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 from datetime import timedelta
 from uuid import uuid4
 import jieba
@@ -11,6 +12,7 @@ from .db import Chunk, File, Job, Knowledge, Model, session_factory, utcnow
 from .documents import parse_file, split_blocks
 from .providers import CloudEmbeddings
 from .security import safe_error
+from .deferred import DeferredJob
 
 
 def terms(text: str):
@@ -37,27 +39,44 @@ def index_documents(db, kb, file, model, generation, options, job=None):
         job.touched = utcnow()
         db.commit()
 
+    cloud_job = job is not None and settings().queue_mode == "vercel"
+    progress = dict(job.options.get("indexProgress", {})) if cloud_job else {}
+    offset = progress.get(file.id, 0)
+    if not cloud_job or offset == 0:
+        db.execute(delete(Chunk).where(Chunk.file_id == file.id, Chunk.generation == generation))
+    began = time.monotonic()
     adapter = CloudEmbeddings(model, heartbeat=heartbeat if job else None)
-    vectors = adapter.embed_documents([doc.page_content for doc in documents])
-    db.execute(delete(Chunk).where(Chunk.file_id == file.id, Chunk.generation == generation))
-    for order, (doc, vector) in enumerate(zip(documents, vectors, strict=True)):
-        db.add(
-            Chunk(
-                id=str(uuid4()),
-                kb_id=kb.id,
-                file_id=file.id,
-                generation=generation,
-                content=doc.page_content,
-                location=doc.metadata["location"],
-                metadata_json={**doc.metadata, "order": order},
-                terms=" ".join(terms(doc.page_content)),
-                embedding=vector,
+    for start in range(offset, len(documents), 10):
+        if cloud_job and time.monotonic() - began > 150:
+            raise DeferredJob("向量化中，继续构建")
+        batch = documents[start : start + 10]
+        vectors = adapter.embed_documents([doc.page_content for doc in batch])
+        for order, (doc, vector) in enumerate(zip(batch, vectors, strict=True), start):
+            db.add(
+                Chunk(
+                    id=str(uuid4()),
+                    kb_id=kb.id,
+                    file_id=file.id,
+                    generation=generation,
+                    content=doc.page_content,
+                    location=doc.metadata["location"],
+                    metadata_json={**doc.metadata, "order": order},
+                    terms=" ".join(terms(doc.page_content)),
+                    embedding=vector,
+                )
             )
-        )
+        if cloud_job:
+            progress[file.id] = start + len(batch)
+            job.options = {**job.options, "indexProgress": progress}
+            job.usage = {"calls": [*job.usage.get("calls", []), *adapter.usage]}
+            adapter.usage.clear()
+            job.touched = utcnow()
+            db.commit()
     return adapter.usage
 
 
 def run_job(job_id):
+    started = time.monotonic()
     factory = session_factory()
     with factory() as db:
         claimed = db.execute(
@@ -72,7 +91,7 @@ def run_job(job_id):
         kb = db.get(Knowledge, job.kb_id)
         if not kb:
             return
-        errors = []
+        errors = dict(job.options.get("errors", {}))
         calls = list(job.usage.get("calls", []))
         completed = list(job.options.get("completed", []))
         job.finished = len(completed)
@@ -82,9 +101,15 @@ def run_job(job_id):
         for file_id in job.file_ids:
             if file_id in completed:
                 continue
+            if settings().queue_mode == "vercel" and time.monotonic() - started > 180:
+                job.status, job.stage, job.touched = "queued", "继续构建", utcnow()
+                db.commit()
+                return True
             file = db.get(File, file_id)
             if not file or file.kb_id != kb.id:
-                errors.append("文件已被删除")
+                errors[file_id] = "文件已被删除"
+                job.options = {**job.options, "errors": errors}
+                db.commit()
                 continue
             try:
                 job.touched = utcnow()
@@ -104,21 +129,33 @@ def run_job(job_id):
                     model = db.get(Model, model_id)
                     if not model or model.type != "Embedding" or model.status != "ready":
                         raise ValueError("请先配置并测试可用的向量模型")
-                    calls.extend(index_documents(db, kb, file, model, generation, file.options, job))
+                    usage = index_documents(db, kb, file, model, generation, file.options, job)
+                    if settings().queue_mode == "vercel":
+                        calls = list(job.usage.get("calls", []))
+                    else:
+                        calls.extend(usage)
                     if job.kind != "reindex":
                         file.status = "ready"
                 file.updated = utcnow()
+                errors.pop(file_id, None)
                 completed.append(file_id)
-                job.options = {**job.options, "completed": completed}
+                job.options = {**job.options, "completed": completed, "errors": errors}
                 job.finished = len(completed)
                 job.touched = utcnow()
                 job.usage = {"calls": calls}
                 db.commit()
+            except DeferredJob as exc:
+                db.rollback()
+                job = db.get(Job, job_id)
+                job.status, job.stage, job.touched = "queued", str(exc), utcnow()
+                db.commit()
+                return True
             except Exception as exc:
                 db.rollback()
                 job, file = db.get(Job, job_id), db.get(File, file_id)
                 error = safe_error(exc)
-                errors.append(f"{file.name if file else file_id}：{error}")
+                errors[file_id] = f"{file.name if file else file_id}：{error}"
+                job.options = {**job.options, "errors": errors}
                 if file:
                     if job.kind != "reindex":
                         file.status = "failed"
@@ -138,10 +175,11 @@ def run_job(job_id):
         if kb:
             kb.updated = utcnow()
         job.status = "failed" if errors else "success"
-        job.error = "\n".join(errors) or None
+        job.error = "\n".join(errors.values()) or None
         job.stage = "部分失败" if errors and job.finished else "失败" if errors else "已完成"
         job.touched = utcnow()
-        job.usage = {"calls": calls}
+        if settings().queue_mode != "vercel":
+            job.usage = {"calls": calls}
         db.commit()
 
 

@@ -256,7 +256,7 @@ export default function App() {
         <div className="prototype-strip">
           <span>
             <span className="tiny-dot" />
-            {live ? "知识中台" : "Web 体验版 v1.0"}
+            {live ? "知识中台" : "Web 体验版 v1.1"}
           </span>
           <p role={connectionError ? "alert" : undefined}>
             {connectionError ||
@@ -331,7 +331,7 @@ export default function App() {
         <footer className="app-footer">
           <span>知序 · 让知识有序流动</span>
           <span>
-            {live ? "服务版本 v1.0" : "Web 体验版 v1.0"} <span>·</span>{" "}
+            {live ? "服务版本 v1.1" : "Web 体验版 v1.1"} <span>·</span>{" "}
             {live ? "业务数据" : "演示数据"}
           </span>
         </footer>

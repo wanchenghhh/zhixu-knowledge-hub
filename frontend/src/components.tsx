@@ -102,6 +102,7 @@ export function Status({ status }: { status: string }) {
     parsing: "解析中",
     preview: "待确认构建",
     indexing: "向量化中",
+    uploading: "上传中",
     retried: "已重试",
     empty: "无依据",
     cancelled: "已停止",

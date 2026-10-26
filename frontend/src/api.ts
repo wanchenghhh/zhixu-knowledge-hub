@@ -107,3 +107,57 @@ export async function streamChat(
     reader.releaseLock();
   }
 }
+
+export async function uploadKnowledgeFile(
+  kbId: string,
+  file: File,
+  options: unknown,
+  strategy: string = "multipart",
+  onProgress?: (percent: number) => void,
+) {
+  if (strategy !== "chunked") {
+    const data = new FormData();
+    data.append("file", file);
+    data.append("consent", "true");
+    data.append("options", JSON.stringify(options));
+    return api<{ file: { id: string } }>(`/knowledge/${kbId}/upload`, {
+      method: "POST",
+      body: data,
+    });
+  }
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    await file.arrayBuffer(),
+  );
+  const sha256 = [...new Uint8Array(digest)]
+    .map((n) => n.toString(16).padStart(2, "0"))
+    .join("");
+  const upload = await write<{
+    id: string;
+    partBytes: number;
+    received: string[];
+  }>(`/knowledge/${kbId}/uploads`, {
+    name: file.name,
+    size: file.size,
+    sha256,
+    options,
+    consent: true,
+  });
+  const parts = Math.ceil(file.size / upload.partBytes);
+  for (let index = 0; index < parts; index++) {
+    if (!upload.received.includes(String(index)))
+      await api(`/files/${upload.id}/parts/${index}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file.slice(
+          index * upload.partBytes,
+          (index + 1) * upload.partBytes,
+        ),
+      });
+    onProgress?.(Math.round(((index + 1) / parts) * 100));
+  }
+  return write<{ file: { id: string } }>(
+    `/files/${upload.id}/complete-upload`,
+    {},
+  );
+}

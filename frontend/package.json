@@ -1,7 +1,7 @@
 {
   "name": "zhixu-knowledge-hub",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -9,7 +9,8 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "format": "prettier --write src vite.config.ts tsconfig.json package.json index.html",
-    "build:preview": "VITE_PUBLIC_PREVIEW=true npm run build"
+    "build:preview": "VITE_PUBLIC_PREVIEW=true npm run build",
+    "build:live": "VITE_REQUIRE_BACKEND=true npm run build"
   },
   "dependencies": {
     "antd": "^6.0.0",

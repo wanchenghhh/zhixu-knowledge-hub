@@ -11,7 +11,8 @@ export type FileStatus =
   | "queued"
   | "parsing"
   | "preview"
-  | "indexing";
+  | "indexing"
+  | "uploading";
 export interface Knowledge {
   id: string;
   name: string;
@@ -131,6 +132,7 @@ export interface ModelConfig {
 }
 export interface State {
   version: 1;
+  runtime?: { uploadStrategy: "multipart" | "chunked"; maxFileBytes: number };
   role: Role;
   knowledge: Knowledge[];
   files: KnowledgeFile[];

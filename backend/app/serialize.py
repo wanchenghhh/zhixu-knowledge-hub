@@ -1,6 +1,7 @@
 from datetime import timezone
 from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
+from .config import settings
 from .db import Chunk, Conversation, File, Job, Knowledge, Model, QueryLog, Setting
 
 
@@ -162,6 +163,10 @@ def state_dict(db, role, browser_id):
     ocr = db.get(Setting, "ocr")
     return {
         "version": 1,
+        "runtime": {
+            "uploadStrategy": "chunked" if settings().storage_backend == "vercel_blob" else "multipart",
+            "maxFileBytes": settings().max_file_bytes,
+        },
         "role": role,
         "knowledge": [kb_dict(k) for k in kbs],
         "files": [file_dict(f, db) for f in files],

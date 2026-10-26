@@ -13,7 +13,7 @@ import {
   Upload,
 } from "antd";
 import { CloudUpload, FileText } from "lucide-react";
-import { api, write } from "./api";
+import { write, uploadKnowledgeFile } from "./api";
 import { useStore } from "./store";
 import { validateFile } from "./domain";
 import type { KnowledgeFile, Task } from "./data";
@@ -71,16 +71,11 @@ export default function LiveImport({
     const uploaded: string[] = [];
     try {
       for (const file of selected) {
-        const data = new FormData();
-        data.append("file", file);
-        data.append("consent", "true");
-        data.append(
-          "options",
-          JSON.stringify({ parseMode: mode, chunkSize: size, overlap }),
-        );
-        const result = await api<{ file: KnowledgeFile }>(
-          `/knowledge/${kbId}/upload`,
-          { method: "POST", body: data },
+        const result = await uploadKnowledgeFile(
+          kbId,
+          file,
+          { parseMode: mode, chunkSize: size, overlap },
+          state.runtime?.uploadStrategy,
         );
         uploaded.push(result.file.id);
         setIds([...uploaded]);

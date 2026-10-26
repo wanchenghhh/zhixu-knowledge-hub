@@ -38,10 +38,14 @@ npm test
 
 4173 的独立前端原型仍使用演示数据，真实验收请使用 8000 入口。详细格式支持、限制、恢复与备份方法见运行文档。
 
-## v1.0 线上体验
+## v1.1 云端真实 RAG
 
-- [Vercel Web 体验版](https://zhixu-knowledge-hub-wan-cheng.vercel.app)
-- [GitHub Pages 版本介绍](https://wanchenghhh.github.io/zhixu-knowledge-hub/)
-- [发布内容与验收步骤](docs/05-v1.0发布与验收.md)
+- [打开知识中台](https://zhixu-knowledge-hub-wan-cheng.vercel.app)
+- [GitHub Pages 发布说明](https://wanchenghhh.github.io/zhixu-knowledge-hub/)
+- [云端部署与验收](docs/06-v1.1云端真实RAG.md)
 
-线上为前端演示，数据保存在当前浏览器，不接收真实密钥或调用云模型。真实后端仍使用本机 / 内网版本。
+Vercel 同域提供桌面 Web 与 FastAPI / LangChain API；Neon PostgreSQL / pgvector 保存业务数据和向量；私有 Blob 保存原文件；Vercel Queues 驱动解析和构建任务。线上仅使用真实后端，连接失败显示错误。
+
+按产品要求公开免登录，访客可自由切换三角色并使用已配置模型；角色控制用于业务体验，不能当作身份认证。模型密钥仅由后端加密保存，不进入源码或前端包。图片、扫描 PDF 和增强表格解析需要在解析设置中另配阿里云 DocMind 云端 API。
+
+内网 Docker 版本继续使用同一后端与 Redis / Celery，原有本机数据不自动迁移；本次仅将已有三类模型配置加密迁移至云端。

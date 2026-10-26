@@ -9,12 +9,14 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlalchemy.orm import Session
 from .config import decrypt, settings
 from .db import File, Job, Setting, utcnow
+from .storage import original_path
+from .deferred import DeferredJob
 
 EXTENSIONS = {"pdf", "doc", "docx", "md", "png", "jpg", "jpeg", "xlsx", "xls", "csv"}
 
 
 def file_path(file: File):
-    return settings().data_dir / "files" / file.id
+    return original_path(file)
 
 
 def zip_guard(path):
@@ -152,6 +154,8 @@ def cloud_parse(path: Path, filename: str, file: File, db: Session, job: Job, ca
             return results
         if status in {"Success", "Succeeded"}:
             raise ValueError("OCR 已完成但未返回结构化内容")
+        if settings().queue_mode == "vercel":
+            raise DeferredJob("云端文档解析中")
         time.sleep(10)
     raise ValueError(f"OCR 查询超时，保留云端任务号供后续恢复：{cloud_id}")
 

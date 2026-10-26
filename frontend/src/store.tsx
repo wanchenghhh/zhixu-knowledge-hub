@@ -11,6 +11,7 @@ import { initialState } from "./data";
 import type { Role, State } from "./data";
 import { api, getApiRole, setApiRole } from "./api";
 const KEY = "zhixu-prototype-v1";
+const requireBackend = import.meta.env.VITE_REQUIRE_BACKEND === "true";
 const Store = createContext<{
   state: State;
   setState: Dispatch<SetStateAction<State>>;
@@ -20,6 +21,17 @@ const Store = createContext<{
   refresh: () => Promise<State>;
 } | null>(null);
 function load(): State {
+  if (requireBackend)
+    return {
+      ...initialState(),
+      role: getApiRole(),
+      knowledge: [],
+      files: [],
+      tasks: [],
+      sessions: [],
+      logs: [],
+      models: [],
+    };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
@@ -43,9 +55,11 @@ function load(): State {
 }
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, rawSetState] = useState<State>(load);
-  const [live, setLive] = useState(false);
-  const [connectionError, setConnectionError] = useState("");
-  const liveRef = useRef(false);
+  const [live, setLive] = useState(requireBackend);
+  const [connectionError, setConnectionError] = useState(
+    requireBackend ? "正在连接真实知识服务…" : "",
+  );
+  const liveRef = useRef(requireBackend);
 
   const refresh = useCallback(async () => {
     const role = getApiRole();
@@ -68,8 +82,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (import.meta.env.VITE_PUBLIC_PREVIEW === "true") return;
     let mounted = true;
     fetch("/api/v1/health")
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (!r.ok) throw new Error("后端连接失败");
+        return r.json();
+      })
       .then(async (health) => {
+        if (requireBackend && health?.mode !== "live") throw new Error("后端未就绪");
         if (health?.mode === "live" && mounted) {
           liveRef.current = true;
           rawSetState((previous) => ({
@@ -90,7 +108,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (requireBackend)
+          setConnectionError(
+            "真实后端暂不可用，请稍后重试；不会切换到演示数据。",
+          );
+      });
     return () => {
       mounted = false;
     };

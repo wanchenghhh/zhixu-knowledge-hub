@@ -150,7 +150,9 @@ def engine():
     url = settings().database_url
     e = create_engine(
         url,
-        connect_args={"check_same_thread": False, "timeout": 30} if url.startswith("sqlite") else {},
+        connect_args={"check_same_thread": False, "timeout": 30}
+        if url.startswith("sqlite")
+        else {"prepare_threshold": None},
         pool_pre_ping=True,
     )
     if url.startswith("sqlite"):

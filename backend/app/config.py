@@ -1,14 +1,21 @@
 from functools import lru_cache
 from pathlib import Path
+import os
+from pydantic import AliasChoices, Field
 from cryptography.fernet import Fernet
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_prefix="HUB_")
-    database_url: str = "sqlite:///./runtime/knowledge.db"
+    database_url: str = Field(
+        default="sqlite:///./runtime/knowledge.db",
+        validation_alias=AliasChoices("HUB_DATABASE_URL", "DATABASE_URL", "POSTGRES_URL"),
+    )
     data_dir: Path = Path("./runtime")
     encryption_key: str = ""
+    storage_backend: str = "local"
+    model_bootstrap: str = ""
     environment: str = "development"
     queue_mode: str = "local"
     redis_url: str = "redis://localhost:6379/0"
@@ -24,6 +31,12 @@ class Settings(BaseSettings):
 @lru_cache
 def settings() -> Settings:
     s = Settings()
+    if s.database_url.startswith("postgres://"):
+        s.database_url = s.database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    elif s.database_url.startswith("postgresql://"):
+        s.database_url = s.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if os.environ.get("VERCEL") and s.data_dir == Path("./runtime"):
+        s.data_dir = Path("/tmp/zhixu")
     s.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     (s.data_dir / "files").mkdir(exist_ok=True, mode=0o700)
     if s.environment == "production" and (not s.encryption_key or s.database_url.startswith("sqlite")):
