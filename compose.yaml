@@ -1,0 +1,75 @@
+name: zhixu-knowledge-hub
+x-backend: &backend
+  build: ./backend
+  environment: &environment
+    HUB_ENVIRONMENT: production
+    HUB_DATABASE_URL: postgresql+psycopg://knowledge:${POSTGRES_PASSWORD:?请在 .env 配置数据库密码}@postgres:5432/knowledge
+    HUB_DATA_DIR: /data
+    HUB_ENCRYPTION_KEY: ${HUB_ENCRYPTION_KEY:?请在 .env 配置持久的 Fernet 主密钥}
+    HUB_QUEUE_MODE: celery
+    HUB_REDIS_URL: redis://redis:6379/0
+  volumes:
+    - files:/data
+  restart: unless-stopped
+services:
+  web:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+  api:
+    <<: *backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  worker:
+    <<: *backend
+    command: celery -A app.worker.celery worker --loglevel=INFO --concurrency=2
+    depends_on:
+      api:
+        condition: service_healthy
+  dispatcher:
+    <<: *backend
+    command: celery -A app.worker.celery beat --loglevel=INFO --schedule=/data/celerybeat-schedule
+    depends_on:
+      api:
+        condition: service_healthy
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: knowledge
+      POSTGRES_USER: knowledge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请配置数据库密码}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knowledge -d knowledge"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+volumes:
+  files:
+  postgres:
+  redis:
