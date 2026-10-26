@@ -19,7 +19,7 @@
     "backend": {
       "root": "backend",
       "framework": "fastapi",
-      "entrypoint": "cloud:app",
+      "entrypoint": "pyproject.toml",
       "buildCommand": "python -m app.migrate",
       "functions": {
         "**/*.py": {
