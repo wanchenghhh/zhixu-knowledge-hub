@@ -11,6 +11,7 @@ import {
   InputNumber,
   Modal,
   Radio,
+  Slider,
   Select,
   Steps,
   Switch,
@@ -32,6 +33,11 @@ import { PageHeading } from "./components";
 import { useStore } from "./store";
 interface Options {
   chunkSize: number;
+  lengthUnit: "characters" | "tokens";
+  delimiters: string[];
+  delimiterPosition: string;
+  headingLevel: number;
+  tableHeader: boolean;
   overlap: number;
   parseMode: string;
   strategy: string;
@@ -97,6 +103,10 @@ interface Preview {
       location: string;
       parentText?: string;
       tablePreserved?: boolean;
+      tableHeaderRepeated?: boolean;
+      length?: number;
+      lengthUnit?: string;
+      lengthWarning?: string;
     };
   }[];
 }
@@ -112,9 +122,14 @@ interface Version {
 }
 const defaults: Options = {
   chunkSize: 800,
+  lengthUnit: "characters",
+  delimiters: ["\n\n"],
+  delimiterPosition: "start",
+  headingLevel: 2,
+  tableHeader: true,
   overlap: 100,
   parseMode: "auto",
-  strategy: "structure",
+  strategy: "smart",
   boundary: "paragraph",
   separator: "\\n\\n",
   parent: true,
@@ -172,7 +187,23 @@ export default function LiveKnowledgeStudio() {
     setError("");
     api<Config>(`/knowledge/${kbId}/processing`)
       .then((data) => {
-        if (active) setConfig(data);
+        if (active)
+          setConfig({
+            ...data,
+            options: {
+              ...defaults,
+              ...data.options,
+              strategy: ["structure", "semantic"].includes(
+                data.options.strategy,
+              )
+                ? "smart"
+                : data.options.strategy,
+              ...(data.options.strategy === "custom" &&
+              data.options.boundary === "paragraph"
+                ? { boundary: "delimiter", delimiters: ["\n\n"] }
+                : {}),
+            },
+          });
       })
       .catch((e) => {
         if (active) setError(String(e));
@@ -709,71 +740,222 @@ export default function LiveKnowledgeStudio() {
           <section className="studio-panel chunk-settings">
             <h2>切分策略</h2>
             <Radio.Group
-              className="strategy-options studio-gap"
-              disabled={pending}
-              value={options.strategy}
-              onChange={(e) => patch({ strategy: e.target.value })}
+              className="chunk-method-grid studio-gap"
+              disabled={pending || options.strategy === "qa"}
+              value={
+                options.strategy === "custom"
+                  ? options.boundary
+                  : options.strategy
+              }
+              onChange={(e) => {
+                const method = e.target.value;
+                patch({
+                  strategy: ["smart"].includes(method) ? method : "custom",
+                  ...(!["smart"].includes(method) ? { boundary: method } : {}),
+                });
+              }}
             >
               {[
-                ["structure", "自动结构切分"],
-                ["custom", "自定义切分"],
-                ["semantic", "语义切分"],
-                ["qa", "问答对模式"],
-              ].map(([value, label]) => (
+                [
+                  "smart",
+                  "智能切分",
+                  "结合段落结构、表格和语义相关性确定边界，适合通用资料。",
+                ],
+                [
+                  "length",
+                  "按长度切分",
+                  "按字符或 Token 控制长度，适合上下文受限的场景。",
+                ],
+                ["page", "按页切分", "按 PDF 真实页码隔离内容，长页继续细分。"],
+                [
+                  "heading",
+                  "按标题切分",
+                  "按所选标题层级划分章节，章节之间不混合。",
+                ],
+                [
+                  "regex",
+                  "按正则切分",
+                  "通过正则表达式识别分隔位置，适合规则文档。",
+                ],
+                [
+                  "delimiter",
+                  "按符号切分",
+                  "按一个或多个明确分隔符切分，无需编写正则。",
+                ],
+              ].map(([value, label, description]) => (
                 <Radio key={value} value={value}>
-                  {label}
+                  <strong>{label}</strong>
+                  {value === "smart" ? <Tag color="purple">推荐</Tag> : null}
+                  <p>{description}</p>
                 </Radio>
               ))}
             </Radio.Group>
             <Form layout="vertical">
-              <div className="studio-form-row">
-                <Form.Item label="最大长度（字符）">
-                  <InputNumber
-                    min={100}
-                    max={4000}
+              <Form.Item label="长度单位">
+                <Select
+                  disabled={pending}
+                  value={options.lengthUnit}
+                  options={[
+                    { value: "characters", label: "字符" },
+                    { value: "tokens", label: "Token（通用分词器）" },
+                  ]}
+                  onChange={(lengthUnit) => patch({ lengthUnit })}
+                />
+                {options.lengthUnit === "tokens" ? (
+                  <p className="studio-help">
+                    使用离线 cl100k_base
+                    分词器控制切片长度；服务商实际计费以其用量为准。
+                  </p>
+                ) : null}
+              </Form.Item>
+              <Form.Item
+                label={`最大分段长度（${options.lengthUnit === "tokens" ? "Token" : "字符"}）`}
+              >
+                <div className="chunk-length-control">
+                  <Slider
+                    min={10}
+                    max={6000}
                     disabled={pending}
                     value={options.chunkSize}
-                    onChange={(v) => patch({ chunkSize: v || 800 })}
+                    onChange={(chunkSize) =>
+                      patch({
+                        chunkSize,
+                        overlap: Math.min(options.overlap, chunkSize - 1),
+                        parentSize: Math.max(options.parentSize, chunkSize),
+                      })
+                    }
                   />
-                </Form.Item>
-                <Form.Item label="重叠长度">
                   <InputNumber
-                    min={0}
-                    max={1000}
+                    min={10}
+                    max={6000}
                     disabled={pending}
-                    value={options.overlap}
-                    onChange={(v) => patch({ overlap: v ?? 100 })}
+                    value={options.chunkSize}
+                    onChange={(v) => {
+                      if (v)
+                        patch({
+                          chunkSize: v,
+                          overlap: Math.min(options.overlap, v - 1),
+                          parentSize: Math.max(options.parentSize, v),
+                        });
+                    }}
+                  />
+                </div>
+              </Form.Item>
+              <Form.Item label="重叠长度（同一分段内）">
+                <InputNumber
+                  min={0}
+                  max={Math.min(1000, options.chunkSize - 1)}
+                  disabled={pending}
+                  value={options.overlap}
+                  onChange={(v) => patch({ overlap: v ?? 0 })}
+                />
+                <p className="studio-help">
+                  重叠与父片段均不会跨越所选的页、章节或分隔符边界。
+                </p>
+              </Form.Item>
+              {options.strategy === "custom" && options.boundary === "page" ? (
+                <Alert
+                  className="studio-gap"
+                  type="info"
+                  showIcon
+                  title="仅适用于有真实页码的解析结果"
+                  description="PDF 保留原始页码。Word、Markdown 没有固定页码时，请选按标题或智能切分。"
+                />
+              ) : null}
+              {options.strategy === "custom" &&
+              options.boundary === "heading" ? (
+                <Form.Item label="标题层级">
+                  <Select
+                    disabled={pending}
+                    value={options.headingLevel}
+                    options={[1, 2, 3, 4, 5, 6].map((value) => ({
+                      value,
+                      label: `按 ${value} 级及以上标题切分`,
+                    }))}
+                    onChange={(headingLevel) => patch({ headingLevel })}
+                  />
+                  <p className="studio-help">
+                    支持 Markdown # 标题与 Word
+                    标题样式；较低级标题随所属章节保留。
+                  </p>
+                </Form.Item>
+              ) : null}
+              {options.strategy === "custom" && options.boundary === "regex" ? (
+                <Form.Item label="正则表达式">
+                  <Input
+                    disabled={pending}
+                    value={options.separator}
+                    onChange={(e) => patch({ separator: e.target.value })}
+                    placeholder="例如：第[一二三四五六七八九十]+章"
+                  />
+                  <p className="studio-help">
+                    按匹配位置切分，支持多行标记
+                    (?m)。表达式设有超时与空匹配保护。
+                  </p>
+                </Form.Item>
+              ) : null}
+              {options.strategy === "custom" &&
+              options.boundary === "delimiter" ? (
+                <Form.Item label="分隔符（可多选或输入）">
+                  <Select
+                    mode="tags"
+                    disabled={pending}
+                    value={options.delimiters.map((value) =>
+                      value.replace(/\n/g, "\\n").replace(/\t/g, "\\t"),
+                    )}
+                    options={[
+                      { value: "\\n\\n", label: "空行 \\n\\n" },
+                      { value: "\\n", label: "换行 \\n" },
+                      { value: "---", label: "分隔线 ---" },
+                      { value: "。", label: "句号 。" },
+                      { value: "；", label: "分号 ；" },
+                    ]}
+                    onChange={(values) =>
+                      patch({
+                        delimiters: values.map((value) =>
+                          value.replace(/\\n/g, "\n").replace(/\\t/g, "\t"),
+                        ),
+                      })
+                    }
+                  />
+                  <p className="studio-help">
+                    输入后按回车添加。支持 \\n 换行、\\t
+                    制表符；多个符号按任意一个命中切分，优先匹配较长符号。
+                  </p>
+                </Form.Item>
+              ) : null}
+              {options.strategy === "custom" &&
+              ["regex", "delimiter", "paragraph"].includes(options.boundary) ? (
+                <Form.Item label="分隔标记保留方式">
+                  <Select
+                    disabled={pending}
+                    value={options.delimiterPosition}
+                    options={[
+                      { value: "start", label: "保留在下一片段开头" },
+                      { value: "end", label: "保留在上一片段结尾" },
+                      { value: "remove", label: "移除分隔标记" },
+                    ]}
+                    onChange={(delimiterPosition) =>
+                      patch({ delimiterPosition })
+                    }
                   />
                 </Form.Item>
-              </div>
-              {options.strategy === "custom" ? (
-                <>
-                  <Form.Item label="边界规则">
-                    <Select
-                      disabled={pending}
-                      value={options.boundary}
-                      options={[
-                        { value: "length", label: "按长度" },
-                        { value: "heading", label: "按标题" },
-                        { value: "page", label: "按页" },
-                        { value: "paragraph", label: "按段落" },
-                        { value: "regex", label: "按正则表达式" },
-                      ]}
-                      onChange={(boundary) => patch({ boundary })}
-                    />
-                  </Form.Item>
-                  {options.boundary === "regex" ? (
-                    <Form.Item label="正则表达式">
-                      <Input
-                        disabled={pending}
-                        value={options.separator}
-                        onChange={(e) => patch({ separator: e.target.value })}
-                      />
-                    </Form.Item>
-                  ) : null}
-                </>
               ) : null}
-              {options.strategy === "semantic" ? (
+              <div className="studio-setting">
+                <div>
+                  <strong>表格表头拼装</strong>
+                  <p>
+                    智能切分时，将表头附到各行组，帮助理解 Excel、CSV
+                    与文档表格。
+                  </p>
+                </div>
+                <Switch
+                  disabled={pending || options.strategy !== "smart"}
+                  checked={options.tableHeader}
+                  onChange={(tableHeader) => patch({ tableHeader })}
+                />
+              </div>
+              {options.strategy === "smart" ? (
                 <Form.Item label="语义合并阈值">
                   <InputNumber
                     min={0}
@@ -785,26 +967,51 @@ export default function LiveKnowledgeStudio() {
                   />
                 </Form.Item>
               ) : null}
-              {options.strategy === "qa" ? (
-                <Form.Item label="问答对来源">
+              <details className="studio-gap">
+                <summary>高级设置：内容组织方式</summary>
+                <Form.Item label="内容组织" className="studio-gap">
                   <Select
                     disabled={pending}
-                    value={options.questionMode}
-                    onChange={(questionMode) => patch({ questionMode })}
+                    value={options.strategy === "qa" ? "qa" : "document"}
                     options={[
                       {
-                        value: "extract",
-                        label: "模型提取，答案必须有原文依据",
+                        value: "document",
+                        label: "通用文档（使用所选切分方式）",
                       },
-                      { value: "existing", label: "读取已有 Q/A 或问/答格式" },
+                      { value: "qa", label: "问答对（每组问答单独组织）" },
                     ]}
+                    onChange={(value) =>
+                      patch({ strategy: value === "qa" ? "qa" : "smart" })
+                    }
                   />
+                  <p className="studio-help">
+                    问答对按完整问答组织内容，不与六种切分方式叠加。
+                  </p>
                 </Form.Item>
-              ) : null}
+                {options.strategy === "qa" ? (
+                  <Form.Item label="问答对来源">
+                    <Select
+                      disabled={pending}
+                      value={options.questionMode}
+                      onChange={(questionMode) => patch({ questionMode })}
+                      options={[
+                        {
+                          value: "extract",
+                          label: "模型提取，答案必须有原文依据",
+                        },
+                        {
+                          value: "existing",
+                          label: "读取已有 Q/A 或问/答格式",
+                        },
+                      ]}
+                    />
+                  </Form.Item>
+                ) : null}
+              </details>
               <div className="studio-setting">
                 <div>
-                  <strong>父子检索</strong>
-                  <p>小片段召回，返回原文上下文。</p>
+                  <strong>父子检索（独立开关）</strong>
+                  <p>用小片段召回，补充较大上下文；可与标题等切分方式搭配。</p>
                 </div>
                 <Switch
                   disabled={pending}
@@ -834,7 +1041,7 @@ export default function LiveKnowledgeStudio() {
               生成 / 更新真实预览
             </Button>
             <p className="studio-help">
-              语义切分调用 Embedding；问答对提取调用
+              智能切分中的语义判断调用 Embedding；问答对提取调用
               LLM。相同配置可复用已保存结果。
             </p>
           </section>
@@ -860,7 +1067,11 @@ export default function LiveKnowledgeStudio() {
                     <strong>
                       {i + 1}. {item.metadata.location}
                     </strong>
-                    <small>{item.text.length} 字符</small>
+                    <small>
+                      {item.metadata.length ?? item.text.length}{" "}
+                      {item.metadata.lengthUnit === "tokens" ? "Token" : "字符"}
+                      {item.metadata.lengthWarning ? " · 长度提示" : ""}
+                    </small>
                   </button>
                 ))}
               </div>
@@ -869,8 +1080,19 @@ export default function LiveKnowledgeStudio() {
                   <>
                     <Tag>{active.metadata.location}</Tag>
                     <pre>{active.text}</pre>
+                    {active.metadata.lengthWarning ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        title={active.metadata.lengthWarning}
+                      />
+                    ) : null}
                     {active.metadata.tablePreserved ? (
-                      <Tag color="blue">表头随行组保留</Tag>
+                      <Tag color="blue">
+                        {active.metadata.tableHeaderRepeated === false
+                          ? "表格按行组保留"
+                          : "表头随行组保留"}
+                      </Tag>
                     ) : null}
                     {active.metadata.parentText ? (
                       <details className="studio-gap">

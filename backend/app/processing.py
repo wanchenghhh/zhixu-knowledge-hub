@@ -5,6 +5,7 @@ import json
 import math
 import re
 import time
+from functools import lru_cache
 from types import SimpleNamespace
 from datetime import date
 from langchain_core.documents import Document
@@ -146,16 +147,53 @@ def windows(blocks):
     return result
 
 
-def split_structural(blocks, options):
-    size = options["chunkSize"]
-    overlap = options["overlap"]
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=size,
-        chunk_overlap=overlap,
-        separators=["\n\n", "\n", "。", "；", "，", " ", ""],
+@lru_cache(maxsize=1)
+def token_encoding():
+    # Bundle the public tokenizer vocabulary so serverless cold starts never download it.
+    import tiktoken
+    from tiktoken.load import load_tiktoken_bpe
+    from pathlib import Path
+
+    return tiktoken.Encoding(
+        name="zhixu_cl100k_base",
+        pat_str=r"'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}++|\p{N}{1,3}+| ?[^\s\p{L}\p{N}]++[\r\n]*+|\s++$|\s*[\r\n]|\s+(?!\S)|\s",
+        mergeable_ranks=load_tiktoken_bpe(
+            str(Path(__file__).with_name("data") / "cl100k_base.tiktoken"),
+            expected_hash="223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7",
+        ),
+        special_tokens={
+            "<|endoftext|>": 100257,
+            "<|fim_prefix|>": 100258,
+            "<|fim_middle|>": 100259,
+            "<|fim_suffix|>": 100260,
+            "<|endofprompt|>": 100276,
+        },
+    )
+
+
+def text_length(text, options):
+    return (
+        len(token_encoding().encode(text, disallowed_special=()))
+        if options.get("lengthUnit") == "tokens"
+        else len(text)
+    )
+
+
+def make_splitter(options, separators=None):
+    return RecursiveCharacterTextSplitter(
+        chunk_size=options["chunkSize"],
+        chunk_overlap=options["overlap"],
+        separators=separators or ["\n\n", "\n", "。", "；", "，", " ", ""],
+        length_function=lambda text: text_length(text, options),
         add_start_index=True,
     )
+
+
+def split_structural(blocks, options):
+    size = options["chunkSize"]
+    splitter = make_splitter(options)
     result = []
+    table_headers_seen = set()
     for index, b in enumerate(blocks):
         text = b["text"].strip()
         if not text:
@@ -211,21 +249,39 @@ def split_structural(blocks, options):
             header = lines[:2]
             rows = lines[2:]
             current = []
+            table_key = (meta.get("page"), meta.get("sheet"), b["location"].split(" · ")[0], tuple(header))
+            first_group = table_key not in table_headers_seen
+            table_headers_seen.add(table_key)
             for row in rows:
-                if current and len("\n".join(header + current + [row])) > size:
+                if current and text_length("\n".join(header + current + [row]), options) > size:
                     result.append(
                         Document(
-                            page_content="\n".join(header + current),
-                            metadata={**meta, "tablePreserved": True},
+                            page_content="\n".join(
+                                (header if options.get("tableHeader", True) or first_group else []) + current
+                            ),
+                            metadata={
+                                **meta,
+                                "tablePreserved": True,
+                                "tableHeaderRepeated": options.get("tableHeader", True),
+                            },
                         )
                     )
                     current = []
+                    first_group = False
                 current.append(row)
             if current or not rows:
                 result.append(
                     Document(
-                        page_content="\n".join(header + current) if rows else text,
-                        metadata={**meta, "tablePreserved": True},
+                        page_content="\n".join(
+                            (header if options.get("tableHeader", True) or first_group else []) + current
+                        )
+                        if rows
+                        else text,
+                        metadata={
+                            **meta,
+                            "tablePreserved": True,
+                            "tableHeaderRepeated": options.get("tableHeader", True),
+                        },
                     )
                 )
         else:
@@ -237,8 +293,11 @@ def split_structural(blocks, options):
             merged
             and not doc.metadata.get("tablePreserved")
             and not merged[-1].metadata.get("tablePreserved")
+            and doc.metadata.get("page") == merged[-1].metadata.get("page")
+            and doc.metadata.get("sheet") == merged[-1].metadata.get("sheet")
+            and doc.metadata["location"].split(" · ")[0] == merged[-1].metadata["location"].split(" · ")[0]
             and not re.match(r"^(#{1,6}\s|[一二三四五六七八九十]+[、.])", doc.page_content)
-            and len(merged[-1].page_content) + len(doc.page_content) + 2 <= size
+            and text_length(merged[-1].page_content + "\n\n" + doc.page_content, options) <= size
         ):
             parent = merged[-1]
             parent.page_content += "\n\n" + doc.page_content
@@ -256,54 +315,100 @@ def split_structural(blocks, options):
 
 
 def split_custom(blocks, options):
-    from collections import OrderedDict
     import regex
 
     boundary = options["boundary"]
-    groups = OrderedDict()
-    for index, b in enumerate(blocks):
+    groups = []
+    heading_number = -1
+    page_number = object()
+    heading_found = False
+    for index, block in enumerate(blocks):
+        meta = block.get("metadata", {})
         if boundary == "page":
-            key = str(b.get("metadata", {}).get("page", index))
+            page = meta.get("page")
+            if page is None:
+                raise ValueError(
+                    "按页切分需要真实页码，请使用 PDF 或已返回页码的云端解析结果；Word、Markdown 建议按标题切分"
+                )
+            new_group = page != page_number
+            page_number = page
         elif boundary == "heading":
-            key = b["location"].split(" · ")[0]
+            match = re.match(r"^(#{1,6})\s+", block["text"])
+            level = meta.get("headingLevel") or (len(match[1]) if match else None)
+            # Older Markdown imports still retain the literal heading in the source.
+            if level and level <= options.get("headingLevel", 2):
+                heading_number += 1
+                heading_found = True
+            new_group = not groups or groups[-1][0] != heading_number
         else:
-            key = "document"
-        groups.setdefault(key, []).append((index, b))
+            new_group = not groups
+        if new_group:
+            groups.append((heading_number if boundary == "heading" else page_number, []))
+        groups[-1][1].append((index, block))
+    if boundary == "heading" and not heading_found:
+        raise ValueError("未识别到所选层级的标题，请调整标题层级，或改用智能/符号切分")
     result = []
-    for group in groups.values():
-        text = "\n\n".join(b["text"] for _, b in group)
+    for _, group in groups:
+        text = "\n\n".join(block["text"] for _, block in group)
+        offsets, cursor = [], 0
+        for index, block in group:
+            offsets.append((cursor, cursor + len(block["text"]), index, block))
+            cursor += len(block["text"]) + 2
+        pattern = None
         if boundary == "regex":
+            pattern = options["separator"]
+        elif boundary == "delimiter":
+            pattern = "|".join(
+                regex.escape(value) for value in sorted(options["delimiters"], key=len, reverse=True)
+            )
+        elif boundary == "paragraph":
+            pattern = r"\n\s*\n"
+        spans = []
+        if pattern:
             try:
-                pieces = regex.split(options["separator"], text, timeout=0.15)
+                matches = list(regex.finditer(pattern, text, timeout=0.15))
             except (regex.error, TimeoutError):
                 raise ValueError("正则切分失败或超时，请简化表达式") from None
-        elif boundary == "paragraph":
-            pieces = text.split("\n\n")
+            if len(matches) > 10000:
+                raise ValueError("切片数量过多，请调整规则")
+            position = options.get("delimiterPosition", "start")
+            cursor = 0
+            for match in matches:
+                if match.start() == match.end():
+                    raise ValueError("分隔表达式不能产生零长度匹配")
+                end = match.end() if position == "end" else match.start()
+                spans.append((cursor, end))
+                cursor = match.start() if position == "start" else match.end()
+            spans.append((cursor, len(text)))
         else:
-            pieces = [text]
-        if len(pieces) > 10000:
-            raise ValueError("切片数量过多，请调整规则")
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=options["chunkSize"],
-            chunk_overlap=options["overlap"],
-            separators=[""] if boundary == "length" else ["\n", "。", " ", ""],
-            add_start_index=True,
-        )
-        for piece in pieces:
-            if not piece or not piece.strip():
+            spans = [(0, len(text))]
+        splitter = make_splitter(options, [""] if boundary == "length" else ["\n", "。", " ", ""])
+        for start, end in spans:
+            piece = text[start:end]
+            if not piece.strip():
                 continue
-            docs = splitter.create_documents(
-                [piece],
-                metadatas=[
+            for doc in splitter.create_documents([piece]):
+                child_start = start + max(0, doc.metadata.get("start_index", 0))
+                child_end = child_start + len(doc.page_content)
+                sources = [
+                    (i, b) for left, right, i, b in offsets if left < child_end and right > child_start
+                ]
+                index, block = sources[0]
+                last_location = sources[-1][1]["location"]
+                doc.metadata.update(
                     {
-                        "location": group[0][1]["location"],
-                        "block_index": group[0][0],
-                        "blockIndexes": [i for i, _ in group],
+                        **block.get("metadata", {}),
+                        "location": block["location"]
+                        if last_location == block["location"]
+                        else block["location"] + " → " + last_location,
+                        "block_index": index,
+                        "blockIndexes": [i for i, _ in sources],
                         "customBoundary": boundary,
+                        "boundaryText": piece,
+                        "boundaryOffset": max(0, doc.metadata.get("start_index", 0)),
                     }
-                ],
-            )
-            result.extend(docs)
+                )
+                result.append(doc)
     return result
 
 
@@ -477,11 +582,11 @@ def prepare_file(db, kb, file, job, deadline):
     else:
         atomic = (
             {**options, "chunkSize": min(300, options["chunkSize"]), "overlap": min(50, options["overlap"])}
-            if strategy == "semantic"
+            if strategy in {"smart", "semantic"}
             else options
         )
         docs = split_structural(file.blocks, atomic)
-    if strategy == "semantic":
+    if strategy in {"smart", "semantic"}:
         model = db.get(Model, kb.embedding)
         if not model or model.status != "ready":
             raise ValueError("向量模型尚未就绪")
@@ -508,7 +613,11 @@ def prepare_file(db, kb, file, job, deadline):
                 merged
                 and similarity >= options["semanticThreshold"]
                 and not doc.metadata.get("tablePreserved")
-                and len(merged[-1].page_content) + len(doc.page_content) + 2 <= options["chunkSize"]
+                and not merged[-1].metadata.get("tablePreserved")
+                and doc.metadata.get("page") == merged[-1].metadata.get("page")
+                and doc.metadata.get("sheet") == merged[-1].metadata.get("sheet")
+                and text_length(merged[-1].page_content + "\n\n" + doc.page_content, options)
+                <= options["chunkSize"]
             ):
                 merged[-1].page_content += "\n\n" + doc.page_content
                 merged[-1].metadata["blockIndexes"] = list(
@@ -592,23 +701,35 @@ def prepare_file(db, kb, file, job, deadline):
         raise ValueError("切片数量超过上限，请调整切分参数")
     for doc in docs:
         index = doc.metadata["block_index"]
+        boundary_text = doc.metadata.pop("boundaryText", None)
+        boundary_offset = doc.metadata.pop("boundaryOffset", 0)
         if options["parent"]:
-            # Expand around the exact source block, retaining the source location of the child.
-            text = file.blocks[index]["text"]
-            if len(text) > options["parentSize"]:
-                offset = max(0, doc.metadata.get("start_index", 0))
-                left = max(0, offset - (options["parentSize"] - len(doc.page_content)) // 2)
-                text = text[left : left + options["parentSize"]]
-            else:
-                end = index + 1
-                while (
-                    end < len(file.blocks)
-                    and len(text) + len(file.blocks[end]["text"]) + 2 <= options["parentSize"]
-                ):
-                    text += "\n\n" + file.blocks[end]["text"]
-                    end += 1
+            # Explicit boundaries apply to both retrieval chunks and their parent context.
+            text = boundary_text if boundary_text is not None else file.blocks[index]["text"]
+            if boundary_text is None and doc.page_content not in text:
+                # Merged semantic chunks must never lose evidence when replacing the child with its parent.
+                text = doc.page_content
+            if text_length(text, options) > options["parentSize"]:
+                offset = (
+                    boundary_offset
+                    if boundary_text is not None
+                    else max(0, doc.metadata.get("start_index", 0))
+                )
+                center = max(0, text.find(doc.page_content, max(0, offset - 5)))
+                left, right = center, min(len(text), center + len(doc.page_content))
+                while (left > 0 or right < len(text)) and text_length(
+                    text[max(0, left - 20) : min(len(text), right + 20)], options
+                ) <= options["parentSize"]:
+                    left, right = max(0, left - 20), min(len(text), right + 20)
+                text = text[left:right]
             doc.metadata["parentText"] = text
-            doc.metadata["parentLocation"] = file.blocks[index]["location"]
+            doc.metadata["parentLocation"] = doc.metadata["location"]
+        doc.metadata["lengthUnit"] = options["lengthUnit"]
+        doc.metadata["length"] = text_length(doc.page_content, options)
+        if doc.metadata["length"] > options["chunkSize"]:
+            doc.metadata["lengthWarning"] = (
+                "表格单行或完整问答超过上限，为保留完整内容未截断，请调大长度或改用按长度切分。"
+            )
     serialized = [{"text": d.page_content, "metadata": d.metadata} for d in docs]
     state["documents"] = serialized
     state.pop("semanticVectors", None)

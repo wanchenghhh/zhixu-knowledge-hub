@@ -80,12 +80,17 @@ class MetadataFilter(BaseModel):
 
 
 class ParseOptions(BaseModel):
-    chunkSize: int = Field(default=800, ge=100, le=4000)
+    chunkSize: int = Field(default=800, ge=10, le=6000)
+    lengthUnit: Literal["characters", "tokens"] = "characters"
     overlap: int = Field(default=100, ge=0, le=1000)
     parseMode: Literal["auto", "enhanced"] = "auto"
-    strategy: Literal["structure", "custom", "semantic", "qa"] = "structure"
-    boundary: Literal["length", "heading", "page", "paragraph", "regex"] = "paragraph"
+    strategy: Literal["smart", "structure", "custom", "semantic", "qa"] = "smart"
+    boundary: Literal["length", "heading", "page", "paragraph", "regex", "delimiter"] = "paragraph"
     separator: str = Field(default=r"\n\n", max_length=200)
+    delimiters: list[str] = Field(default_factory=lambda: ["\n\n"], min_length=1, max_length=20)
+    delimiterPosition: Literal["start", "end", "remove"] = "start"
+    headingLevel: int = Field(default=2, ge=1, le=6)
+    tableHeader: bool = True
     parent: bool = True
     parentSize: int = Field(default=2400, ge=100, le=12000)
     semanticThreshold: float = Field(default=0.65, ge=0, le=1)
@@ -95,6 +100,8 @@ class ParseOptions(BaseModel):
 
     @model_validator(mode="after")
     def valid_chunks(self):
+        if any(not value or len(value) > 100 for value in self.delimiters):
+            raise ValueError("分隔符不能为空，单个分隔符不能超过100字符")
         if self.overlap >= self.chunkSize:
             raise ValueError("重叠长度必须小于片段长度")
         if self.parent and self.parentSize < self.chunkSize:

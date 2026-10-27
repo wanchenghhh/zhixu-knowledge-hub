@@ -233,11 +233,17 @@ def parse_file(file: File, db: Session, job: Job):
         from docx import Document as Word
 
         doc = Word(path)
-        result = [
-            block(p.text, f"第 {i + 1} 段", paragraph=i + 1)
-            for i, p in enumerate(doc.paragraphs)
-            if p.text.strip()
-        ]
+        result = []
+        for i, paragraph in enumerate(doc.paragraphs):
+            if not paragraph.text.strip():
+                continue
+            import re
+
+            heading = re.search(r"(?:Heading|标题)\s*([1-6])", paragraph.style.name, re.I)
+            metadata = {"paragraph": i + 1}
+            if heading:
+                metadata["headingLevel"] = int(heading[1])
+            result.append(block(paragraph.text, f"第 {i + 1} 段", **metadata))
         for i, table in enumerate(doc.tables):
             result.extend(
                 table_blocks([[cell.text for cell in row.cells] for row in table.rows], f"第 {i + 1} 个表格")
