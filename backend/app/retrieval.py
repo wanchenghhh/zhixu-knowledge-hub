@@ -5,10 +5,12 @@ from typing import Any
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from sqlalchemy import func, select
-from .db import Chunk, File, Model, engine
+from .db import Chunk, ChunkIndex, File, Model, engine
 from .jobs import terms
 from .providers import CloudEmbeddings, rerank
 from .security import get_kb, safe_error
+from .versions import current_files, validate_filters, matches_metadata
+from .processing import bounded_model
 
 
 def cosine(left, right):
@@ -27,6 +29,8 @@ class KnowledgeRetriever(BaseRetriever):
     top_k: int = 5
     threshold: float = 0.3
     use_rerank: bool = True
+    current_only: bool = True
+    metadata_filters: list = []
     calls: list = []
     stages: dict = {}
     warnings: list = []
@@ -35,6 +39,7 @@ class KnowledgeRetriever(BaseRetriever):
         began = time.perf_counter()
         self.calls, self.stages, self.warnings = [], {}, []
         kbs = [get_kb(self.db, id, self.role) for id in dict.fromkeys(self.kb_ids)]
+        schemas = validate_filters(kbs, self.metadata_filters)
         ranked, cache = [], {}
         query_terms = terms(query)
         for kb in kbs:
@@ -43,15 +48,39 @@ class KnowledgeRetriever(BaseRetriever):
                 raise ValueError(f"{kb.name} 的向量模型尚未就绪")
             if model.id not in cache:
                 start = time.perf_counter()
-                adapter = CloudEmbeddings(model)
+                adapter = CloudEmbeddings(bounded_model(model))
                 cache[model.id] = adapter.embed_query(query)
                 self.calls.extend(adapter.usage)
                 self.stages["embedding"] = self.stages.get("embedding", 0) + time.perf_counter() - start
             vector = cache[model.id]
+            eligible = (
+                set(current_files(self.db, kb.id))
+                if self.current_only
+                else set(self.db.scalars(select(File.id).where(File.kb_id == kb.id, File.status == "ready")))
+            )
+            if self.metadata_filters:
+                filtered = set()
+                for file in self.db.scalars(select(File).where(File.id.in_(eligible))):
+                    metadata = self.db.scalar(
+                        select(Chunk.metadata_json)
+                        .where(Chunk.file_id == file.id, Chunk.generation == file.index_generation)
+                        .limit(1)
+                    )
+                    values = (metadata or {}).get("documentMetadata", file.metadata_values)
+                    if matches_metadata(values, self.metadata_filters, schemas):
+                        filtered.add(file.id)
+                eligible = filtered
+            if not eligible:
+                continue
             base = (
                 select(Chunk)
                 .join(File, File.id == Chunk.file_id)
-                .where(Chunk.kb_id == kb.id, Chunk.generation == kb.generation, File.status == "ready")
+                .where(
+                    Chunk.kb_id == kb.id,
+                    Chunk.generation == File.index_generation,
+                    File.status == "ready",
+                    File.id.in_(eligible),
+                )
             )
             if engine().dialect.name == "postgresql":
                 vector_chunks = list(
@@ -78,8 +107,34 @@ class KnowledgeRetriever(BaseRetriever):
                     key=lambda c: sum(Counter(c.terms.split())[word] for word in query_terms),
                     reverse=True,
                 )[:30]
+            auxiliary_base = (
+                select(ChunkIndex)
+                .join(Chunk, Chunk.id == ChunkIndex.chunk_id)
+                .join(File, File.id == Chunk.file_id)
+                .where(
+                    File.id.in_(eligible), File.status == "ready", Chunk.generation == File.index_generation
+                )
+            )
+            if engine().dialect.name == "postgresql":
+                indexes = list(
+                    self.db.scalars(
+                        auxiliary_base.order_by(ChunkIndex.embedding.cosine_distance(vector)).limit(30)
+                    )
+                )
+            else:
+                indexes = sorted(
+                    self.db.scalars(auxiliary_base),
+                    key=lambda item: cosine(vector, item.embedding),
+                    reverse=True,
+                )[:30]
+            question_chunks = [self.db.get(Chunk, item.chunk_id) for item in indexes]
+            question_scores = defaultdict(float)
+            for item in indexes:
+                question_scores[item.chunk_id] = max(
+                    question_scores[item.chunk_id], cosine(vector, item.embedding)
+                )
             scores, mapping = defaultdict(float), {}
-            for candidates in [vector_chunks, lexical_chunks]:
+            for candidates in [vector_chunks, lexical_chunks, question_chunks]:
                 for rank, chunk in enumerate(candidates, 1):
                     scores[chunk.id] += 1 / (60 + rank)
                     mapping[chunk.id] = chunk
@@ -97,8 +152,9 @@ class KnowledgeRetriever(BaseRetriever):
                                 "kbId": kb.id,
                                 "location": chunk.location,
                                 "vectorScore": similarity,
+                                "questionScore": question_scores[id],
                                 "fusedScore": score,
-                                "score": max(0, similarity),
+                                "score": max(0, similarity, question_scores[id]),
                                 **chunk.metadata_json,
                             },
                         ),
@@ -117,7 +173,10 @@ class KnowledgeRetriever(BaseRetriever):
                 start = time.perf_counter()
                 try:
                     results, usage = rerank(
-                        model, query, [doc.page_content for doc in candidates], min(20, len(candidates))
+                        bounded_model(model),
+                        query,
+                        [doc.page_content for doc in candidates],
+                        min(20, len(candidates)),
                     )
                     reordered = []
                     for item in results:
@@ -140,10 +199,15 @@ class KnowledgeRetriever(BaseRetriever):
                 break
             file = self.db.get(File, doc.metadata["fileId"])
             doc.metadata["name"] = file.name
+            parent = doc.metadata.get("parentText")
+            if parent and budget + len(parent) <= 12000:
+                doc.metadata["matchedText"] = doc.page_content
+                doc.metadata["location"] = doc.metadata.get("parentLocation", doc.metadata["location"])
+                doc.page_content = parent
             budget += len(doc.page_content)
             selected.append(doc)
         return selected
 
 
 def as_source(doc: Document):
-    return {**doc.metadata, "text": doc.page_content}
+    return {**{k: v for k, v in doc.metadata.items() if k != "parentText"}, "text": doc.page_content}

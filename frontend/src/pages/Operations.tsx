@@ -69,7 +69,12 @@ export function Tasks() {
   const tasks = all.filter((t) => filter === "all" || t.status === filter);
   const retry = (id: string) => {
     if (live) {
-      void write(`/tasks/${id}/retry`, {})
+      void write(
+        state.tasks.find((t) => t.id === id)?.kind === "report"
+          ? `/application-runs/${id}/retry`
+          : `/tasks/${id}/retry`,
+        {},
+      )
         .then(() => refresh())
         .then(() => message.success("重试任务已提交"))
         .catch((error) => message.error(String(error)));
@@ -89,7 +94,7 @@ export function Tasks() {
     <div className="page">
       <PageHeading
         title="任务中心"
-        description="从解析到索引，查看每一份知识的构建进度。"
+        description="查看文档处理、索引构建和应用报告的执行进度。"
         actions={
           <Button
             icon={<ArrowRight size={16} />}
@@ -143,7 +148,7 @@ export function Tasks() {
       </div>
       <section className="panel">
         <div className="table-toolbar">
-          <h3>知识构建任务</h3>
+          <h3>知识与应用任务</h3>
           <span className="text-muted">
             {live ? "持久化任务 · 支持失败重试" : "演示任务 · 支持失败重试"}
           </span>
@@ -185,7 +190,7 @@ export function Tasks() {
               render: (v) => <Status status={v} />,
             },
             {
-              title: "文件进度",
+              title: "处理进度",
               width: 190,
               render: (_, t) => (
                 <div className="task-progress">
@@ -341,6 +346,16 @@ export function Logs() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [kbId, setKbId] = useState("all");
+  const [applicationId, setApplicationId] = useState("all");
+  const [applications, setApplications] = useState<
+    { id: string; draft: { name: string } }[]
+  >([]);
+  useEffect(() => {
+    if (live)
+      api<{ id: string; draft: { name: string } }[]>("/applications")
+        .then(setApplications)
+        .catch(() => {});
+  }, [live, state.role]);
   const [period, setPeriod] = useState("all");
   const [detail, setDetail] = useState<LogEntry | null>(null);
   const [source, setSource] = useState<Source | null>(null);
@@ -348,6 +363,10 @@ export function Logs() {
   const logs = all.filter(
     (l) =>
       (status === "all" || l.status === status) &&
+      (applicationId === "all" ||
+        (applicationId === "direct"
+          ? !l.applicationId
+          : l.applicationId === applicationId)) &&
       (kbId === "all" || l.kbIds.includes(kbId)) &&
       l.question.includes(search) &&
       (period === "all" ||
@@ -476,6 +495,22 @@ export function Logs() {
             allowClear
           />
           <div>
+            {live ? (
+              <Select
+                aria-label="日志所属应用"
+                value={applicationId}
+                onChange={setApplicationId}
+                style={{ minWidth: 170 }}
+                options={[
+                  { value: "all", label: "全部应用与直接问答" },
+                  { value: "direct", label: "直接知识库问答" },
+                  ...applications.map((a) => ({
+                    value: a.id,
+                    label: a.draft.name,
+                  })),
+                ]}
+              />
+            ) : null}
             <Select
               aria-label="日志知识库"
               value={kbId}
@@ -533,6 +568,12 @@ export function Logs() {
               render: (_, l) => (
                 <button className="log-question" onClick={() => setDetail(l)}>
                   {l.question}
+                  {l.applicationId ? (
+                    <Tag color="purple">
+                      {applications.find((a) => a.id === l.applicationId)?.draft
+                        .name || "应用记录"}
+                    </Tag>
+                  ) : null}
                   <small>
                     {l.kbIds
                       .map(

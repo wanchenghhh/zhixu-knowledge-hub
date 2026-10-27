@@ -33,6 +33,7 @@ export default function LiveChat() {
     () =>
       state.models.find((m) => m.type === "LLM" && m.status === "ready")?.id,
   );
+  const [currentOnly, setCurrentOnly] = useState(true);
   const [active, setActive] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<ChatMessage[]>([]);
@@ -110,6 +111,7 @@ export default function LiveChat() {
           threshold:
             state.knowledge.find((k) => scope.includes(k.id))?.threshold ?? 0.3,
           rerank: true,
+          currentOnly,
         },
         controller.signal,
         (name, data) => {
@@ -310,6 +312,19 @@ export default function LiveChat() {
               options={available.map((k) => ({ value: k.id, label: k.name }))}
               onChange={setKbIds}
               disabled={!!current || streaming}
+            />
+          </div>
+          <div className="knowledge-picker">
+            <span>文档版本</span>
+            <Select
+              aria-label="检索文档版本范围"
+              value={currentOnly ? "current" : "all"}
+              onChange={(value) => setCurrentOnly(value === "current")}
+              disabled={streaming}
+              options={[
+                { value: "current", label: "仅当前有效版本" },
+                { value: "all", label: "包含历史版本（答案附版本信息）" },
+              ]}
             />
           </div>
           <div className="composer">

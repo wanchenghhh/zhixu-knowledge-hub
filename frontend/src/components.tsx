@@ -93,6 +93,7 @@ export function FileBadge({ type }: { type: string }) {
 export function Status({ status }: { status: string }) {
   const labels: Record<string, string> = {
     ready: "已就绪",
+    awaiting_outline: "待确认大纲",
     failed: "失败",
     disabled: "已停用",
     success: "已完成",

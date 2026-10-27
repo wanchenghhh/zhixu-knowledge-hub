@@ -61,6 +61,7 @@ class Knowledge(Base):
         Text, default="请严格根据资料回答，使用 [1] 格式引用来源。依据不足时说明未找到答案。"
     )
     generation: Mapped[str] = mapped_column(String(36))
+    processing_config: Mapped[dict] = mapped_column(JSON_COLUMN, default=dict)
     updated: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -78,6 +79,14 @@ class File(Base):
     blocks: Mapped[list] = mapped_column(JSON_COLUMN, default=list)
     options: Mapped[dict] = mapped_column(JSON_COLUMN, default=dict)
     cloud_jobs: Mapped[dict] = mapped_column(JSON_COLUMN, default=dict)
+    metadata_values: Mapped[dict] = mapped_column(JSON_COLUMN, default=dict)
+    preparation: Mapped[dict] = mapped_column(JSON_COLUMN, default=dict)
+    document_group: Mapped[str] = mapped_column(String(36), default="", index=True)
+    version_label: Mapped[str] = mapped_column(String(100), default="")
+    effective_on: Mapped[str] = mapped_column(String(10), default="")
+    expires_on: Mapped[str] = mapped_column(String(10), default="")
+    activated: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    index_generation: Mapped[str] = mapped_column(String(36), default="")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -93,6 +102,45 @@ class Chunk(Base):
     metadata_json: Mapped[dict] = mapped_column(JSON_COLUMN, default=dict)
     terms: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list] = mapped_column(Vector().with_variant(JSON, "sqlite"))
+
+
+class ChunkIndex(Base):
+    __tablename__ = "knowledge_aux_indexes"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    chunk_id: Mapped[str] = mapped_column(ForeignKey("knowledge_chunks.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list] = mapped_column(Vector().with_variant(JSON, "sqlite"))
+
+
+class Application(Base):
+    __tablename__ = "applications"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    draft: Mapped[dict] = mapped_column(JSON_COLUMN, default=dict)
+    published: Mapped[dict | None] = mapped_column(JSON_COLUMN, nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    updated: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ApplicationRun(Base):
+    __tablename__ = "application_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    application_id: Mapped[str] = mapped_column(ForeignKey("applications.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    config: Mapped[dict] = mapped_column(JSON_COLUMN)
+    browser_id: Mapped[str] = mapped_column(String(36), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
+    question: Mapped[str] = mapped_column(Text)
+    inputs: Mapped[dict] = mapped_column(JSON_COLUMN, default=dict)
+    outline: Mapped[list] = mapped_column(JSON_COLUMN, default=list)
+    sections: Mapped[list] = mapped_column(JSON_COLUMN, default=list)
+    output: Mapped[str] = mapped_column(Text, default="")
+    sources: Mapped[list] = mapped_column(JSON_COLUMN, default=list)
+    usage: Mapped[dict] = mapped_column(JSON_COLUMN, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stage: Mapped[str] = mapped_column(String(100), default="等待生成大纲")
+    created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    touched: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
 class Job(Base):
@@ -113,6 +161,8 @@ class Job(Base):
 
 class Conversation(Base):
     __tablename__ = "conversations"
+    application_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    application_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     browser_id: Mapped[str] = mapped_column(String(36), index=True)
     role: Mapped[str] = mapped_column(String(20))
@@ -124,6 +174,7 @@ class Conversation(Base):
 
 class QueryLog(Base):
     __tablename__ = "query_logs"
+    application_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     role: Mapped[str] = mapped_column(String(20))
     kb_ids: Mapped[list] = mapped_column(JSON_COLUMN)

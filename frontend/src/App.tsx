@@ -34,6 +34,8 @@ import type { Role } from "./data";
 import { visibleKnowledge } from "./domain";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const KnowledgePage = lazy(() => import("./pages/Knowledge"));
+const Applications = lazy(() => import("./pages/Applications"));
+const KnowledgeStudio = lazy(() => import("./pages/KnowledgeStudio"));
 const Chat = lazy(() => import("./pages/Chat"));
 const Tasks = lazy(() =>
   import("./pages/Operations").then((m) => ({ default: m.Tasks })),
@@ -48,6 +50,7 @@ const navs = [
   { path: "/", label: "工作台", icon: LayoutDashboard, group: "工作空间" },
   { path: "/knowledge", label: "知识库", icon: Database },
   { path: "/chat", label: "在线对话", icon: MessageSquare },
+  { path: "/applications", label: "应用中心", icon: Layers3 },
   { path: "/tasks", label: "任务中心", icon: Workflow, group: "管理与监测" },
   { path: "/logs", label: "日志监测", icon: FlaskConical },
   { path: "/models", label: "模型服务", icon: Settings2 },
@@ -56,6 +59,11 @@ export default function App() {
   const { state, setState, live, connectionError, switchRole } = useStore();
   const nav = useNavigate();
   const location = useLocation();
+  const prototypeView =
+    !live &&
+    (location.pathname.startsWith("/applications") ||
+      location.pathname === "/ingestion" ||
+      location.pathname.endsWith("/design"));
   const { message, modal } = AntApp.useApp();
   const [help, setHelp] = useState(false);
   const [mobile, setMobile] = useState(false);
@@ -65,11 +73,11 @@ export default function App() {
       state.role === "admin" ||
       (state.role === "manager"
         ? n.path !== "/models"
-        : ["/knowledge", "/chat"].includes(n.path)),
+        : ["/knowledge", "/chat", "/applications"].includes(n.path)),
   );
   const current =
     navs.find((n) => n.path !== "/" && location.pathname.startsWith(n.path)) ||
-    navs[0];
+    (location.pathname === "/ingestion" ? navs[1] : navs[0]);
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
@@ -108,7 +116,8 @@ export default function App() {
         <div className="workspace-switch">
           <span className="workspace-icon">企</span>
           <span>
-            企业知识空间<small>通用版 · v1.0</small>
+            企业知识空间
+            <small>{prototypeView ? "交互原型 · v1.2" : "通用版 · v1.2"}</small>
           </span>
           <ChevronDown size={14} />
         </div>
@@ -214,11 +223,13 @@ export default function App() {
             />
             <span className="demo-label">
               <span />
-              {live
-                ? connectionError
-                  ? "连接中断"
-                  : "服务已连接"
-                : "Web 体验版"}
+              {prototypeView
+                ? "原型预览"
+                : live
+                  ? connectionError
+                    ? "连接中断"
+                    : "服务已连接"
+                  : "Web 体验版"}
             </span>
             <button
               className="icon-button"
@@ -256,13 +267,19 @@ export default function App() {
         <div className="prototype-strip">
           <span>
             <span className="tiny-dot" />
-            {live ? "知识中台" : "Web 体验版 v1.1"}
+            {prototypeView
+              ? "交互原型 v1.2"
+              : live
+                ? "知识中台"
+                : "Web 体验版 v1.1"}
           </span>
           <p role={connectionError ? "alert" : undefined}>
-            {connectionError ||
-              (live
-                ? "后端已连接，文件与对话保存在服务端；模型调用按服务商规则计费。"
-                : "资料、模型调用和统计均为演示；本地保存操作结果，不连接云端服务。")}
+            {prototypeView
+              ? "新增功能使用示例资料与本地草稿，确认交互后再接入真实后端。"
+              : connectionError ||
+                (live
+                  ? "后端已连接，文件与对话保存在服务端；模型调用按服务商规则计费。"
+                  : "资料、模型调用和统计均为演示；本地保存操作结果，不连接云端服务。")}
           </p>
           <button onClick={() => setHelp(true)}>
             体验说明 <ArrowUpRight size={12} />
@@ -291,6 +308,16 @@ export default function App() {
                     <Dashboard />
                   )
                 }
+              />
+              <Route
+                path="/knowledge/:id/design"
+                element={<KnowledgeStudio />}
+              />
+              <Route path="/ingestion" element={<KnowledgeStudio />} />
+              <Route path="/applications" element={<Applications />} />
+              <Route
+                path="/applications/:id/:mode"
+                element={<Applications />}
               />
               <Route path="/knowledge/*" element={<KnowledgePage />} />
               <Route path="/chat" element={<Chat key={state.role} />} />
@@ -331,8 +358,13 @@ export default function App() {
         <footer className="app-footer">
           <span>知序 · 让知识有序流动</span>
           <span>
-            {live ? "服务版本 v1.1" : "Web 体验版 v1.1"} <span>·</span>{" "}
-            {live ? "业务数据" : "演示数据"}
+            {prototypeView
+              ? "原型版本 v1.2"
+              : live
+                ? "服务版本 v1.2"
+                : "Web 体验版 v1.1"}{" "}
+            <span>·</span>{" "}
+            {prototypeView ? "交互示例" : live ? "业务数据" : "演示数据"}
           </span>
         </footer>
       </div>

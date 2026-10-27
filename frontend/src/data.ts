@@ -44,10 +44,18 @@ export interface KnowledgeFile {
   preview?: { text: string; location: string }[];
 }
 export interface Task {
+  applicationId?: string;
   id: string;
   kbId: string;
   name: string;
-  status: "success" | "failed" | "running" | "queued" | "retried";
+  status:
+    | "success"
+    | "failed"
+    | "running"
+    | "queued"
+    | "retried"
+    | "cancelled"
+    | "awaiting_outline";
   kind?: string;
   stage?: string;
   usage?: {
@@ -94,6 +102,7 @@ export interface Session {
   date: string;
 }
 export interface LogEntry {
+  applicationId?: string | null;
   details?: {
     stages?: Record<string, number>;
     usage?: Record<string, number>;

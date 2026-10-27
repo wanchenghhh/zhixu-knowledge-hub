@@ -2,7 +2,18 @@ from datetime import timezone
 from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from .config import settings
-from .db import Chunk, Conversation, File, Job, Knowledge, Model, QueryLog, Setting
+from .db import (
+    Application,
+    ApplicationRun,
+    Chunk,
+    Conversation,
+    File,
+    Job,
+    Knowledge,
+    Model,
+    QueryLog,
+    Setting,
+)
 
 
 def date(value):
@@ -49,7 +60,7 @@ def file_dict(f, db):
         select(func.count())
         .select_from(Chunk)
         .join(Knowledge, Knowledge.id == Chunk.kb_id)
-        .where(Chunk.file_id == f.id, Chunk.generation == Knowledge.generation)
+        .where(Chunk.file_id == f.id, Chunk.generation == f.index_generation)
     )
     return {
         "id": f.id,
@@ -70,6 +81,11 @@ def file_dict(f, db):
         "error": f.error,
         "chunkCount": count,
         "options": f.options,
+        "metadata": f.metadata_values,
+        "version": f.version_label,
+        "documentGroup": f.document_group,
+        "effectiveOn": f.effective_on,
+        "preparedCount": len(f.preparation.get("documents", [])),
         "preview": f.blocks[:100] if f.status == "preview" else [],
         "previewTruncated": len(f.blocks) > 100,
     }
@@ -79,7 +95,12 @@ def job_dict(j):
     return {
         "id": j.id,
         "kbId": j.kb_id,
-        "name": {"parse": "文档解析", "build": "知识构建", "reindex": "重建索引"}.get(j.kind, j.kind),
+        "name": {
+            "parse": "文档解析与抽取",
+            "prepare": "文档预处理",
+            "build": "知识构建",
+            "reindex": "重建索引",
+        }.get(j.kind, j.kind),
         "status": j.status,
         "kind": j.kind,
         "stage": j.stage,
@@ -95,6 +116,7 @@ def job_dict(j):
 def log_dict(log):
     return {
         "id": log.id,
+        "applicationId": log.application_id,
         "role": log.role,
         "kbIds": log.kb_ids,
         "question": log.question,
@@ -133,7 +155,11 @@ def state_dict(db, role, browser_id):
     sessions = []
     for s in db.scalars(
         select(Conversation)
-        .where(Conversation.role == role, Conversation.browser_id == browser_id)
+        .where(
+            Conversation.role == role,
+            Conversation.browser_id == browser_id,
+            Conversation.application_id.is_(None),
+        )
         .order_by(Conversation.created.desc())
         .limit(200)
     ):
@@ -160,20 +186,63 @@ def state_dict(db, role, browser_id):
                 "date": date(s.created),
             }
         )
+    report_tasks = []
+    if role != "user":
+        for run in db.scalars(
+            select(ApplicationRun)
+            .where(ApplicationRun.role == role, ApplicationRun.browser_id == browser_id)
+            .order_by(ApplicationRun.created.desc())
+            .limit(100)
+        ):
+            application = db.get(Application, run.application_id)
+            configuration = (
+                (application.draft if run.config.get("_preview") else application.published)
+                if application
+                else None
+            )
+            if (
+                not configuration
+                or (role != "admin" and role not in configuration["visible"])
+                or not all(id in ids for id in run.config["kbIds"])
+            ):
+                continue
+            report_tasks.append(
+                {
+                    "id": run.id,
+                    "applicationId": run.application_id,
+                    "kbId": run.config["kbIds"][0],
+                    "name": run.config["name"] + " · 报告生成",
+                    "status": run.status,
+                    "kind": "report",
+                    "stage": run.stage,
+                    "total": max(1, len(run.outline)),
+                    "finished": len(run.sections),
+                    "date": date(run.created),
+                    "fileIds": [],
+                    "error": run.error,
+                    "usage": run.usage,
+                }
+            )
     ocr = db.get(Setting, "ocr")
     return {
         "version": 1,
         "runtime": {
             "uploadStrategy": "chunked" if settings().storage_backend == "vercel_blob" else "multipart",
             "maxFileBytes": settings().max_file_bytes,
+            "features": ["metadata", "smart-chunking", "versions", "applications", "reports"],
         },
         "role": role,
         "knowledge": [kb_dict(k) for k in kbs],
         "files": [file_dict(f, db) for f in files],
         "models": [model_dict(m) for m in db.scalars(select(Model).order_by(Model.updated))],
         "tasks": [
-            job_dict(j)
-            for j in db.scalars(select(Job).where(Job.kb_id.in_(ids)).order_by(Job.created.desc()).limit(500))
+            *report_tasks,
+            *[
+                job_dict(j)
+                for j in db.scalars(
+                    select(Job).where(Job.kb_id.in_(ids)).order_by(Job.created.desc()).limit(500)
+                )
+            ],
         ]
         if role != "user"
         else [],

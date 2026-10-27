@@ -33,12 +33,11 @@ from .db import (
     QueryLog,
     Setting,
     engine,
-    init_db,
     session_factory,
     utcnow,
 )
 from .documents import EXTENSIONS, file_path
-from .jobs import index_documents, local_worker, new_job
+from .jobs import local_worker, new_job
 from .providers import test_model
 from .retrieval import KnowledgeRetriever, as_source
 from .schemas import ChatInput, KnowledgeInput, ModelInput, OCRInput, ParseOptions, RetrievalInput
@@ -47,6 +46,8 @@ from .serialize import file_dict, job_dict, kb_dict, model_dict, state_dict
 from .tasks import notify_job, recover_deliveries
 from .storage import persist, remove as remove_original
 from .uploads import router as uploads_router
+from .knowledge_api import router as knowledge_router
+from .applications_api import router as applications_router
 from fastapi.middleware.gzip import GZipMiddleware
 
 
@@ -63,7 +64,9 @@ Browser = Annotated[str, Depends(browser_header)]
 @asynccontextmanager
 async def lifespan(app):
     if settings().environment != "production":
-        init_db()
+        from .migrate import upgrade_database
+
+        upgrade_database()
     with session_factory()() as db:
         if engine().dialect.name == "postgresql":
             db.execute(text("SELECT pg_advisory_xact_lock(8011391)"))
@@ -122,9 +125,11 @@ async def lifespan(app):
         await asyncio.to_thread(worker.join, 3)
 
 
-app = FastAPI(title="知序知识中台 API", version="1.1.0", lifespan=lifespan)
+app = FastAPI(title="知序知识中台 API", version="1.2.0", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=2048)
 app.include_router(uploads_router)
+app.include_router(knowledge_router)
+app.include_router(applications_router)
 
 
 @app.middleware("http")
@@ -183,7 +188,7 @@ def health(db: DB):
         "database": engine().dialect.name,
         "queue": settings().queue_mode,
         "mode": "live",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "storage": settings().storage_backend,
         "uploadStrategy": "chunked" if settings().storage_backend == "vercel_blob" else "multipart",
     }
@@ -425,16 +430,28 @@ def build(id: str, body: dict, db: DB, role: Role):
     managed(role)
     get_kb(db, id, role)
     guard_reindex(db, id)
+    if db.scalar(select(Job.id).where(Job.kb_id == id, Job.status.in_(["queued", "running"])).limit(1)):
+        raise HTTPException(409, "知识库已有待处理任务，请完成后再构建")
     ids = body.get("fileIds", [])
     if not isinstance(ids, list) or not ids or len(ids) > 100:
         raise HTTPException(400, "请选择 1–100 份待构建文件")
     for file_id in ids:
         file = db.get(File, file_id)
-        if not file or file.kb_id != id or file.status not in {"preview", "failed"} or not file.blocks:
+        if (
+            not file
+            or file.kb_id != id
+            or not file.blocks
+            or not (
+                file.status in {"preview", "failed"}
+                or (file.status == "ready" and file.preparation.get("needsRebuild"))
+            )
+        ):
             raise HTTPException(400, "仅可构建已经解析完成的文件")
     job = new_job(db, id, "build", list(dict.fromkeys(ids)))
     for file_id in ids:
-        db.get(File, file_id).status = "queued"
+        row = db.get(File, file_id)
+        if not row.activated:
+            row.status = "queued"
     db.commit()
     notify_job(job.id)
     return job_dict(job)
@@ -487,8 +504,10 @@ def download(id: str, db: DB, role: Role):
 @app.get("/api/v1/files/{id}/chunks")
 def chunks(id: str, db: DB, role: Role):
     file = require_file(db, id, role)
-    kb = get_kb(db, file.kb_id, role)
-    rows = list(db.scalars(select(Chunk).where(Chunk.file_id == id, Chunk.generation == kb.generation)))
+    get_kb(db, file.kb_id, role)
+    rows = list(
+        db.scalars(select(Chunk).where(Chunk.file_id == id, Chunk.generation == file.index_generation))
+    )
     rows.sort(key=lambda chunk: chunk.metadata_json.get("order", 0))
     return [
         {"id": c.id, "text": c.content, "location": c.location, "metadata": c.metadata_json} for c in rows
@@ -506,25 +525,59 @@ def edit_chunk(id: str, body: dict, db: DB, role: Role):
     if not isinstance(content, str) or not content.strip() or len(content) > 16000:
         raise HTTPException(400, "片段内容须为 1–16,000 字符")
     guard_reindex(db, kb.id)
-    if chunk.generation != kb.generation:
+    if chunk.generation != db.get(File, chunk.file_id).index_generation:
         raise HTTPException(409, "片段已被新索引替换，请刷新后编辑")
     file = db.get(File, chunk.file_id)
-    blocks = [dict(item) for item in file.blocks]
-    block_index = chunk.metadata_json.get("block_index", 0)
-    if block_index >= len(blocks):
-        raise HTTPException(409, "片段位置已变化，请刷新")
-    original = blocks[block_index]["text"]
-    offset = chunk.metadata_json.get("start_index", -1)
-    if offset < 0 or original[offset : offset + len(chunk.content)] != chunk.content:
-        offset = original.find(chunk.content)
-    if offset < 0:
-        raise HTTPException(409, "原始内容已变化，请刷新片段")
-    blocks[block_index]["text"] = original[:offset] + content + original[offset + len(chunk.content) :]
-    file.blocks = blocks
-    calls = index_documents(db, kb, file, db.get(Model, kb.embedding), kb.generation, file.options)
+    if db.scalar(select(Job.id).where(Job.kb_id == kb.id, Job.status.in_(["queued", "running"])).limit(1)):
+        raise HTTPException(409, "知识库有处理中的任务，请完成后再编辑")
+    prepared = file.preparation.get("documents")
+    if prepared:
+        import copy
+
+        documents = copy.deepcopy(prepared)
+        order = chunk.metadata_json.get("order", 0)
+        if order >= len(documents) or documents[order]["text"] != chunk.content:
+            raise HTTPException(409, "片段已变化，请刷新后编辑")
+        documents[order]["text"] = content
+        metadata = documents[order]["metadata"]
+        metadata["edited"] = True
+        if metadata.get("parentText"):
+            metadata["parentText"] = metadata["parentText"].replace(chunk.content, content, 1)
+        edits = [
+            *file.preparation.get("chunkEdits", []),
+            {
+                "order": order,
+                "before": chunk.content,
+                "after": content,
+                "role": role,
+                "date": utcnow().isoformat(),
+            },
+        ]
+        file.preparation = {
+            **file.preparation,
+            "documents": documents,
+            "chunkEdits": edits[-100:],
+            "needsRebuild": True,
+        }
+    else:
+        blocks = [dict(item) for item in file.blocks]
+        block_index = chunk.metadata_json.get("block_index", 0)
+        if block_index >= len(blocks):
+            raise HTTPException(409, "片段位置已变化，请刷新")
+        original = blocks[block_index]["text"]
+        offset = chunk.metadata_json.get("start_index", -1)
+        if offset < 0 or original[offset : offset + len(chunk.content)] != chunk.content:
+            offset = original.find(chunk.content)
+        if offset < 0:
+            raise HTTPException(409, "原始内容已变化，请刷新片段")
+        blocks[block_index]["text"] = original[:offset] + content + original[offset + len(chunk.content) :]
+        file.blocks = blocks
+        file.preparation = {**file.preparation, "needsRebuild": True}
+    job = new_job(db, kb.id, "build", [file.id])
     file.updated, kb.updated = utcnow(), utcnow()
     db.commit()
-    return {"updated": True, "usage": calls}
+    notify_job(job.id)
+    return {"updated": False, "queued": True, "task": job_dict(job)}
 
 
 @app.patch("/api/v1/files/{id}")
@@ -537,9 +590,9 @@ def file_status(id: str, body: dict, db: DB, role: Role):
     if body.get("action") == "disable":
         file.status = "disabled"
     elif body.get("action") == "enable":
-        kb = get_kb(db, file.kb_id, role)
+        get_kb(db, file.kb_id, role)
         has_index = db.scalar(
-            select(Chunk.id).where(Chunk.file_id == id, Chunk.generation == kb.generation).limit(1)
+            select(Chunk.id).where(Chunk.file_id == id, Chunk.generation == file.index_generation).limit(1)
         )
         file.status = "ready" if has_index else "preview" if file.blocks else "failed"
     else:
@@ -577,7 +630,11 @@ def retry(id: str, db: DB, role: Role):
     ):
         raise HTTPException(409, "知识库有待处理任务，请完成后再重试重建")
     ids = (
-        [id for id in job.file_ids if db.get(File, id) and db.get(File, id).status == "failed"]
+        [
+            id
+            for id in job.file_ids
+            if db.get(File, id) and (db.get(File, id).status == "failed" or db.get(File, id).error)
+        ]
         if job.kind != "reindex"
         else job.file_ids
     )
@@ -587,7 +644,15 @@ def retry(id: str, db: DB, role: Role):
     if not claimed.rowcount:
         raise HTTPException(409, "重试已提交")
     created = new_job(
-        db, job.kb_id, job.kind, ids, {k: v for k, v in job.options.items() if k != "completed"}
+        db,
+        job.kb_id,
+        job.kind,
+        ids,
+        {
+            k: v
+            for k, v in job.options.items()
+            if k not in {"completed", "indexProgress", "questionProgress", "errors"}
+        },
     )
     if job.kind != "reindex":
         for file_id in ids:
@@ -621,7 +686,14 @@ def set_ocr(body: OCRInput, db: DB, role: Role):
 @app.post("/api/v1/retrieval")
 def retrieve(body: RetrievalInput, db: DB, role: Role):
     retriever = KnowledgeRetriever(
-        db=db, kb_ids=body.kbIds, role=role, top_k=body.topK, threshold=body.threshold, use_rerank=body.rerank
+        db=db,
+        kb_ids=body.kbIds,
+        role=role,
+        top_k=body.topK,
+        threshold=body.threshold,
+        use_rerank=body.rerank,
+        current_only=body.currentOnly,
+        metadata_filters=[item.model_dump() for item in body.metadataFilters],
     )
     docs = retriever.invoke(body.question)
     return {
@@ -634,6 +706,10 @@ def retrieve(body: RetrievalInput, db: DB, role: Role):
 
 @app.post("/api/v1/chat")
 def chat(body: ChatInput, request: Request, db: DB, role: Role, browser: Browser):
+    return start_chat(body, request, db, role, browser)
+
+
+def start_chat(body, request, db, role, browser, app_context=None):
     for id in body.kbIds:
         get_kb(db, id, role)
     model = db.get(Model, body.modelId)
@@ -643,6 +719,10 @@ def chat(body: ChatInput, request: Request, db: DB, role: Role, browser: Browser
         conversation = db.get(Conversation, body.conversationId)
         if not conversation or conversation.browser_id != browser or conversation.role != role:
             raise HTTPException(404, "对话不存在")
+        if conversation.application_id != (app_context["id"] if app_context else None):
+            raise HTTPException(409, "请使用此会话所属的应用入口")
+        if app_context and conversation.application_revision != app_context["revision"]:
+            raise HTTPException(409, "应用已更新发布版本，请开启新对话")
         if set(conversation.kb_ids) != set(body.kbIds):
             raise HTTPException(409, "同一会话不能更换知识库，请新建对话")
     else:
@@ -653,6 +733,8 @@ def chat(body: ChatInput, request: Request, db: DB, role: Role, browser: Browser
             title=body.question[:60],
             kb_ids=body.kbIds,
             messages=[],
+            application_id=app_context["id"] if app_context else None,
+            application_revision=app_context["revision"] if app_context else None,
         )
         db.add(conversation)
         db.flush()
@@ -681,7 +763,7 @@ def chat(body: ChatInput, request: Request, db: DB, role: Role, browser: Browser
         raise HTTPException(409, "对话已更新，请刷新后重试")
     db.commit()
     return StreamingResponse(
-        stream_chat(body, role, browser, conversation.id, request, turn_id),
+        stream_chat(body, role, browser, conversation.id, request, turn_id, app_context),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"},
     )

@@ -62,6 +62,23 @@ def recover_deliveries():
     from sqlalchemy import update
     from .db import Job, session_factory, utcnow
 
+    from .application_jobs import pending_runs
+    from .db import ApplicationRun
+
+    for run_id in pending_runs():
+        with session_factory()() as db:
+            claimed = db.execute(
+                update(ApplicationRun)
+                .where(
+                    ApplicationRun.id == run_id,
+                    ApplicationRun.status == "queued",
+                    ApplicationRun.touched < utcnow() - timedelta(seconds=30),
+                )
+                .values(touched=utcnow())
+            )
+            db.commit()
+            if claimed.rowcount:
+                notify_run(run_id)
     candidates = pending_jobs()
     for job_id in candidates:
         with session_factory()() as db:
@@ -75,3 +92,21 @@ def recover_deliveries():
             db.commit()
             if claimed.rowcount:
                 notify_job(job_id)
+
+
+@celery.task(name="hub.report", bind=True, max_retries=180)
+def report(self, run_id):
+    from .application_jobs import pending_runs, process_run
+
+    pending_runs()
+    if process_run(run_id):
+        raise self.retry(countdown=5)
+
+
+def notify_run(run_id):
+    if not is_vercel:
+        return
+    try:
+        report.apply_async(args=[run_id])
+    except Exception as exc:
+        logging.getLogger(__name__).error("Report delivery deferred (%s)", type(exc).__name__)

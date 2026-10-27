@@ -66,8 +66,9 @@ export async function streamChat(
   body: unknown,
   signal: AbortSignal,
   onEvent: (name: string, data: Record<string, unknown>) => void,
+  path = "/chat",
 ) {
-  const response = await fetch("/api/v1/chat", {
+  const response = await fetch("/api/v1" + path, {
     method: "POST",
     headers: { ...apiHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -120,10 +121,13 @@ export async function uploadKnowledgeFile(
     data.append("file", file);
     data.append("consent", "true");
     data.append("options", JSON.stringify(options));
-    return api<{ file: { id: string } }>(`/knowledge/${kbId}/upload`, {
-      method: "POST",
-      body: data,
-    });
+    return api<{ file: { id: string }; task?: { id: string } }>(
+      `/knowledge/${kbId}/upload`,
+      {
+        method: "POST",
+        body: data,
+      },
+    );
   }
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -156,7 +160,7 @@ export async function uploadKnowledgeFile(
       });
     onProgress?.(Math.round(((index + 1) / parts) * 100));
   }
-  return write<{ file: { id: string } }>(
+  return write<{ file: { id: string }; task?: { id: string } }>(
     `/files/${upload.id}/complete-upload`,
     {},
   );

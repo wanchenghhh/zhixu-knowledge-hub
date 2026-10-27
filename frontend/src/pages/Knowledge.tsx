@@ -40,6 +40,7 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useStore } from "../store";
@@ -127,7 +128,15 @@ function KnowledgeList() {
         description="汇聚企业知识，让每一份资料都能成为可靠的答案。"
         actions={
           canManage ? (
-            <AddButton onClick={() => setCreate(true)} />
+            <>
+              <Button
+                icon={<Sparkles size={15} />}
+                onClick={() => navigate("/ingestion")}
+              >
+                {live ? "智能导入与加工" : "智能导入原型"}
+              </Button>
+              <AddButton onClick={() => setCreate(true)} />
+            </>
           ) : (
             <Button
               type="primary"
@@ -343,7 +352,7 @@ function KnowledgeList() {
   );
 }
 function KnowledgeDetail({ id }: { id: string }) {
-  const { state } = useStore();
+  const { state, live } = useStore();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [importOpen, setImportOpen] = useState(params.get("import") === "1");
@@ -426,6 +435,14 @@ function KnowledgeDetail({ id }: { id: string }) {
           <p>{kb.description}</p>
         </div>
         <div className="heading-actions">
+          {canManage ? (
+            <Button
+              icon={<Sparkles size={15} />}
+              onClick={() => navigate(`/knowledge/${id}/design`)}
+            >
+              {live ? "智能导入与加工" : "智能导入原型"}
+            </Button>
+          ) : null}
           {canManage ? (
             <Button
               icon={<CloudUpload size={16} />}

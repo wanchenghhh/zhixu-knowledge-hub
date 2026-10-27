@@ -130,7 +130,9 @@ export default function LiveChunks({
             await refresh();
             await load();
             setEditing(null);
-            message.success("知识片段与索引已更新");
+            message.success(
+              "已提交片段更新任务，成功后自动切换索引；进度可在任务中心查看",
+            );
           } catch (error) {
             message.error(String(error));
           } finally {
