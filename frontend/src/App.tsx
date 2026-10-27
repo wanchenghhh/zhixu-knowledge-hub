@@ -117,7 +117,9 @@ export default function App() {
           <span className="workspace-icon">企</span>
           <span>
             企业知识空间
-            <small>{prototypeView ? "交互原型 · v1.2" : "通用版 · v1.2"}</small>
+            <small>
+              {prototypeView ? "交互原型 · v1.2.2" : "通用版 · v1.2.2"}
+            </small>
           </span>
           <ChevronDown size={14} />
         </div>
@@ -268,7 +270,7 @@ export default function App() {
           <span>
             <span className="tiny-dot" />
             {prototypeView
-              ? "交互原型 v1.2"
+              ? "交互原型 v1.2.2"
               : live
                 ? "知识中台"
                 : "Web 体验版 v1.1"}
@@ -359,9 +361,9 @@ export default function App() {
           <span>知序 · 让知识有序流动</span>
           <span>
             {prototypeView
-              ? "原型版本 v1.2"
+              ? "原型版本 v1.2.2"
               : live
-                ? "服务版本 v1.2"
+                ? "服务版本 v1.2.2"
                 : "Web 体验版 v1.1"}{" "}
             <span>·</span>{" "}
             {prototypeView ? "交互示例" : live ? "业务数据" : "演示数据"}

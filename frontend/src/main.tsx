@@ -12,22 +12,25 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: "#6654dc",
-          colorInfo: "#6654dc",
+          colorPrimary: "#2563eb",
+          colorInfo: "#2563eb",
+          colorPrimaryHover: "#1d4ed8",
+          colorBgLayout: "#f4f6f9",
+          colorBgContainer: "#ffffff",
           borderRadius: 8,
           fontFamily:
             'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
-          colorText: "#25283d",
-          colorTextSecondary: "#82869a",
-          colorBorder: "#e6e8f0",
+          colorText: "#172333",
+          colorTextSecondary: "#526174",
+          colorBorder: "#e4e9ef",
           controlHeight: 38,
         },
         components: {
-          Button: { primaryShadow: "0 3px 7px rgba(102,84,220,.13)" },
+          Button: { primaryShadow: "0 2px 4px rgba(37,99,235,.12)" },
           Table: {
-            headerBg: "#fafbfe",
-            headerColor: "#85899b",
-            rowHoverBg: "#faf9ff",
+            headerBg: "#fafbfc",
+            headerColor: "#64748b",
+            rowHoverBg: "#f4f7fc",
           },
           Tabs: { horizontalItemGutter: 30 },
         },

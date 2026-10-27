@@ -696,7 +696,7 @@ export default function LiveKnowledgeStudio() {
                           value?.manual
                             ? "gold"
                             : value?.source === "generated"
-                              ? "purple"
+                              ? "blue"
                               : value?.value
                                 ? "blue"
                                 : "default"
@@ -785,7 +785,7 @@ export default function LiveKnowledgeStudio() {
               ].map(([value, label, description]) => (
                 <Radio key={value} value={value}>
                   <strong>{label}</strong>
-                  {value === "smart" ? <Tag color="purple">推荐</Tag> : null}
+                  {value === "smart" ? <Tag color="blue">推荐</Tag> : null}
                   <p>{description}</p>
                 </Radio>
               ))}

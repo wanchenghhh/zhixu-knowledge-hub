@@ -797,7 +797,7 @@ function AppExperience({ config }: { config: ApplicationConfig }) {
       )}
       {stage === 1 ? (
         <div className="outline-preview">
-          <Tag color="purple">1 / 2 · 确认大纲</Tag>
+          <Tag color="blue">1 / 2 · 确认大纲</Tag>
           <h3>先确定报告结构</h3>
           <p>可修改章节，再继续撰写。</p>
           <Input.TextArea
@@ -837,7 +837,7 @@ function AppExperience({ config }: { config: ApplicationConfig }) {
       ) : null}
       {answer ? (
         <div className="experience-answer">
-          <Tag color="purple">示例输出 · 未调用模型</Tag>
+          <Tag color="blue">示例输出 · 未调用模型</Tag>
           <ReactMarkdown>{answer}</ReactMarkdown>
           {config.kind === "report" ? (
             <Button onClick={download}>

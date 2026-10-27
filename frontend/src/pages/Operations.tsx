@@ -106,7 +106,7 @@ export function Tasks() {
       />
       <div className="task-summary">
         {[
-          { status: "all", label: "全部任务", icon: Workflow, color: "purple" },
+          { status: "all", label: "全部任务", icon: Workflow, color: "blue" },
           {
             status: "running",
             label: "构建中",
@@ -383,7 +383,7 @@ export function Logs() {
       value: logs.length,
       unit: "次",
       icon: MessageIcon,
-      color: "purple",
+      color: "blue",
     },
     {
       label: live ? "LLM Token 消耗" : "模拟 Token 消耗",
@@ -569,7 +569,7 @@ export function Logs() {
                 <button className="log-question" onClick={() => setDetail(l)}>
                   {l.question}
                   {l.applicationId ? (
-                    <Tag color="purple">
+                    <Tag color="blue">
                       {applications.find((a) => a.id === l.applicationId)?.draft
                         .name || "应用记录"}
                     </Tag>
@@ -971,7 +971,7 @@ export function Models() {
                   render: (_, m) => (
                     <div className="file-name">
                       <span
-                        className={`icon-square ${m.type === "LLM" ? "purple" : m.type === "Embedding" ? "blue" : "teal"}`}
+                        className={`icon-square ${m.type === "LLM" ? "blue" : m.type === "Embedding" ? "blue" : "teal"}`}
                       >
                         <Sparkles size={18} />
                       </span>
@@ -991,7 +991,7 @@ export function Models() {
                       variant="filled"
                       color={
                         v === "LLM"
-                          ? "purple"
+                          ? "blue"
                           : v === "Embedding"
                             ? "blue"
                             : "cyan"

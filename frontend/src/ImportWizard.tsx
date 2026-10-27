@@ -400,7 +400,7 @@ function DemoImport({
           >
             <Radio value="auto">
               <strong>
-                自动识别 <Tag color="purple">推荐</Tag>
+                自动识别 <Tag color="blue">推荐</Tag>
               </strong>
               <p>普通文档直接提取，扫描件与图片使用云端 OCR。</p>
             </Radio>
@@ -551,7 +551,7 @@ function DemoImport({
                     : "正在建立索引"}
               </h2>
               <p>整理知识片段，保留原始资料的位置与结构</p>
-              <Progress percent={progress} strokeColor="#7863e6" />
+              <Progress percent={progress} strokeColor="#2563eb" />
             </>
           )}
           <div className="build-file-results">

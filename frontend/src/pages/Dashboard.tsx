@@ -49,7 +49,7 @@ export default function Dashboard() {
       unit: "个",
       note: `${knowledge.filter((k) => files.some((f) => f.kbId === k.id && f.status === "ready")).length} 个知识库可用于对话`,
       icon: Database,
-      color: "purple",
+      color: "blue",
     },
     {
       label: "已就绪文件",
@@ -160,8 +160,8 @@ export default function Dashboard() {
             <svg viewBox="0 0 700 150" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#9c8bf5" stopOpacity=".26" />
-                  <stop offset="100%" stopColor="#9c8bf5" stopOpacity=".01" />
+                  <stop offset="0%" stopColor="#2563eb" stopOpacity=".26" />
+                  <stop offset="100%" stopColor="#2563eb" stopOpacity=".01" />
                 </linearGradient>
               </defs>
               {[10, 42, 74, 106, 138].map((y) => (
@@ -171,7 +171,7 @@ export default function Dashboard() {
                   y1={y}
                   x2="700"
                   y2={y}
-                  stroke="#ececf4"
+                  stroke="#e4e9ef"
                   strokeDasharray="4 5"
                 />
               ))}
@@ -186,7 +186,7 @@ export default function Dashboard() {
                   )
                   .join(" ")}
                 fill="none"
-                stroke="#8771e8"
+                stroke="#2563eb"
                 strokeWidth="2.5"
                 strokeLinejoin="round"
               />
@@ -197,7 +197,7 @@ export default function Dashboard() {
                   cy={138 - n * (120 / chartScale)}
                   r="3.5"
                   fill="white"
-                  stroke="#8771e8"
+                  stroke="#2563eb"
                   strokeWidth="2"
                 />
               ))}

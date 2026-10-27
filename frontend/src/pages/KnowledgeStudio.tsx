@@ -502,7 +502,7 @@ function PrototypeKnowledgeStudio() {
                 <>
                   <div className="metadata-legend">
                     <Tag color="blue">事实抽取</Tag>来自原文，可查看依据{" "}
-                    <Tag color="purple">模型生成</Tag>用于召回增强，支持修正
+                    <Tag color="blue">模型生成</Tag>用于召回增强，支持修正
                   </div>
                   <Table
                     pagination={false}
@@ -535,7 +535,7 @@ function PrototypeKnowledgeStudio() {
                             <Tag
                               color={
                                 f.generated
-                                  ? "purple"
+                                  ? "blue"
                                   : f.value
                                     ? "blue"
                                     : "default"
@@ -629,7 +629,7 @@ function PrototypeKnowledgeStudio() {
                 <Radio value={s.value} key={s.value}>
                   <strong>{s.label}</strong>
                   {s.value === "structure" ? (
-                    <Tag color="purple">推荐</Tag>
+                    <Tag color="blue">推荐</Tag>
                   ) : null}
                   <p>{s.desc}</p>
                 </Radio>
@@ -759,7 +759,7 @@ function PrototypeKnowledgeStudio() {
                 {active ? (
                   <>
                     <div className="inline-icon">
-                      <Tag color="purple">{active.location}</Tag>
+                      <Tag color="blue">{active.location}</Tag>
                       <span className="text-muted">
                         {active.text.length} 字符
                       </span>
@@ -961,9 +961,7 @@ function PrototypeKnowledgeStudio() {
       >
         {source ? (
           <>
-            <Tag color={source.generated ? "purple" : "blue"}>
-              {source.name}
-            </Tag>
+            <Tag color={source.generated ? "blue" : "blue"}>{source.name}</Tag>
             <h2 className="studio-gap">{source.source}</h2>
             <p className="studio-help">
               {source.generated

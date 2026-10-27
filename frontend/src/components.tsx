@@ -202,7 +202,7 @@ export function NewKnowledge({
           description:
             v.description?.trim() || "添加资料，开启团队的知识协作。",
           category: v.category,
-          color: "purple",
+          color: "blue",
           icon: "folder",
           visible: ["admin", "manager"],
           embedding: v.embedding,
@@ -341,7 +341,7 @@ export function SourceDrawer({
             </div>
           </div>
           <div className="source-toolbar">
-            <Tag color="purple">{live ? "来源原文" : "演示原文"}</Tag>
+            <Tag color="blue">{live ? "来源原文" : "演示原文"}</Tag>
             <span>
               来自 {state.knowledge.find((k) => k.id === source.kbId)?.name}
             </span>
