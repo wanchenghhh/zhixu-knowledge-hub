@@ -48,6 +48,7 @@ from .storage import persist, remove as remove_original
 from .uploads import router as uploads_router
 from .knowledge_api import router as knowledge_router
 from .applications_api import router as applications_router
+from .model_presets import router as model_presets_router
 from fastapi.middleware.gzip import GZipMiddleware
 
 
@@ -125,11 +126,12 @@ async def lifespan(app):
         await asyncio.to_thread(worker.join, 3)
 
 
-app = FastAPI(title="知序知识中台 API", version="1.2.2", lifespan=lifespan)
+app = FastAPI(title="知序知识中台 API", version="1.2.3", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=2048)
 app.include_router(uploads_router)
 app.include_router(knowledge_router)
 app.include_router(applications_router)
+app.include_router(model_presets_router)
 
 
 @app.middleware("http")
@@ -188,7 +190,7 @@ def health(db: DB):
         "database": engine().dialect.name,
         "queue": settings().queue_mode,
         "mode": "live",
-        "version": "1.2.2",
+        "version": "1.2.3",
         "storage": settings().storage_backend,
         "uploadStrategy": "chunked" if settings().storage_backend == "vercel_blob" else "multipart",
     }

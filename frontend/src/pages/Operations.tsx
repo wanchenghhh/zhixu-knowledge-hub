@@ -1,4 +1,5 @@
 import { api, write } from "../api";
+import ModelPresetSetup from "../ModelPresetSetup";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -905,6 +906,9 @@ export function Models() {
           </button>
         ))}
       </div>
+      {live && type !== "ocr" ? (
+        <ModelPresetSetup onInstalled={setProvider} />
+      ) : null}
       <Tabs
         className="model-tabs"
         activeKey={type}
@@ -1006,7 +1010,12 @@ export function Models() {
                   title: live ? "连接状态" : "演示状态",
                   dataIndex: "status",
                   width: 115,
-                  render: (v) => <Status status={v} />,
+                  render: (v, model) =>
+                    live && !model.hasKey ? (
+                      <Tag color="gold">待填密钥</Tag>
+                    ) : (
+                      <Status status={v} />
+                    ),
                 },
                 {
                   title: "参数",
@@ -1027,7 +1036,9 @@ export function Models() {
                         type="link"
                         size="small"
                         loading={testing === m.id}
-                        disabled={!!testing && testing !== m.id}
+                        disabled={
+                          (live && !m.hasKey) || (!!testing && testing !== m.id)
+                        }
                         onClick={() => test(m)}
                       >
                         {live ? "连接测试" : "模拟测试"}
@@ -1218,7 +1229,7 @@ export function Models() {
               autoComplete="new-password"
               placeholder={
                 live
-                  ? "填写服务商 API Key；仅发送到本机后端"
+                  ? "填写该服务商的 API Key，由服务端加密保存"
                   : "原型不接收真实密钥，后端接入后再配置"
               }
             />

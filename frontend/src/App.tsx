@@ -48,12 +48,17 @@ const Models = lazy(() =>
 );
 const navs = [
   { path: "/", label: "工作台", icon: LayoutDashboard, group: "工作空间" },
-  { path: "/knowledge", label: "知识库", icon: Database },
-  { path: "/chat", label: "在线对话", icon: MessageSquare },
-  { path: "/applications", label: "应用中心", icon: Layers3 },
+  { path: "/knowledge", label: "知识库", icon: Database, group: "工作空间" },
+  { path: "/chat", label: "在线对话", icon: MessageSquare, group: "工作空间" },
+  {
+    path: "/applications",
+    label: "应用中心",
+    icon: Layers3,
+    group: "工作空间",
+  },
   { path: "/tasks", label: "任务中心", icon: Workflow, group: "管理与监测" },
-  { path: "/logs", label: "日志监测", icon: FlaskConical },
-  { path: "/models", label: "模型服务", icon: Settings2 },
+  { path: "/logs", label: "日志监测", icon: FlaskConical, group: "管理与监测" },
+  { path: "/models", label: "模型服务", icon: Settings2, group: "管理与监测" },
 ];
 export default function App() {
   const { state, setState, live, connectionError, switchRole } = useStore();
@@ -118,38 +123,49 @@ export default function App() {
           <span>
             企业知识空间
             <small>
-              {prototypeView ? "交互原型 · v1.2.2" : "通用版 · v1.2.2"}
+              {prototypeView ? "交互原型 · v1.2.3" : "通用版 · v1.2.3"}
             </small>
           </span>
           <ChevronDown size={14} />
         </div>
         <nav aria-label="主导航">
-          {allowed.map((n, i) => (
-            <div key={n.path}>
-              {i === 0 || n.group ? (
-                <div className="nav-group">{n.group || "工作空间"}</div>
-              ) : null}
-              <NavLink
-                end={n.path === "/"}
-                to={n.path}
-                onClick={() => setMobile(false)}
-                className={({ isActive }) =>
-                  `nav-item ${isActive ? "active" : ""}`
-                }
+          {["工作空间", "管理与监测"].map((group, index) => {
+            const items = allowed.filter((item) => item.group === group);
+            if (!items.length) return null;
+            return (
+              <section
+                className="nav-section"
+                key={group}
+                aria-labelledby={`nav-group-${index}`}
               >
-                <n.icon size={19} strokeWidth={1.8} />
-                <span>{n.label}</span>
-                {n.path === "/tasks" && failed > 0 ? (
-                  <span className="nav-badge">{failed}</span>
-                ) : null}
-                {n.path === "/knowledge" ? (
-                  <span className="nav-count">
-                    {visibleKnowledge(state.knowledge, state.role).length}
-                  </span>
-                ) : null}
-              </NavLink>
-            </div>
-          ))}
+                <h2 className="nav-group" id={`nav-group-${index}`}>
+                  {group}
+                </h2>
+                {items.map((n) => (
+                  <NavLink
+                    key={n.path}
+                    end={n.path === "/"}
+                    to={n.path}
+                    onClick={() => setMobile(false)}
+                    className={({ isActive }) =>
+                      `nav-item ${isActive ? "active" : ""}`
+                    }
+                  >
+                    <n.icon size={19} strokeWidth={1.8} />
+                    <span>{n.label}</span>
+                    {n.path === "/tasks" && failed > 0 ? (
+                      <span className="nav-badge">{failed}</span>
+                    ) : null}
+                    {n.path === "/knowledge" ? (
+                      <span className="nav-count">
+                        {visibleKnowledge(state.knowledge, state.role).length}
+                      </span>
+                    ) : null}
+                  </NavLink>
+                ))}
+              </section>
+            );
+          })}
         </nav>
         <div className="sidebar-bottom">
           <div className="prototype-card">
@@ -205,7 +221,7 @@ export default function App() {
               <Menu size={20} />
             </button>
             <PanelLeftClose size={17} className="desktop-only" />
-            <span>工作空间</span>
+            <span>{current.group}</span>
             <span className="slash">/</span>
             <strong>{current.label}</strong>
           </div>
@@ -270,7 +286,7 @@ export default function App() {
           <span>
             <span className="tiny-dot" />
             {prototypeView
-              ? "交互原型 v1.2.2"
+              ? "交互原型 v1.2.3"
               : live
                 ? "知识中台"
                 : "Web 体验版 v1.1"}
@@ -361,9 +377,9 @@ export default function App() {
           <span>知序 · 让知识有序流动</span>
           <span>
             {prototypeView
-              ? "原型版本 v1.2.2"
+              ? "原型版本 v1.2.3"
               : live
-                ? "服务版本 v1.2.2"
+                ? "服务版本 v1.2.3"
                 : "Web 体验版 v1.1"}{" "}
             <span>·</span>{" "}
             {prototypeView ? "交互示例" : live ? "业务数据" : "演示数据"}
