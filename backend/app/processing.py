@@ -81,16 +81,29 @@ def generate(model, system, question, *, purpose, record=None, agent_config=None
         from .agent_tools import agent_complete
         text, usage = agent_complete(model, system, question, agent_config, purpose=purpose, record=record)
         return text, {"type": "LLM", "purpose": purpose, "model": model.model, "usage": usage}
+    from .agent_tools import trace_value, visible_messages
+    from .config import decrypt
+    from .security import safe_error
+    secret = decrypt(model.secret)
     adapter = llm(bounded_model(model))
     start = time.perf_counter()
+    started_at = utcnow().isoformat() + "Z"
+    messages = [SystemMessage(content=system), HumanMessage(content=question)]
     try:
-        result = adapter.invoke([SystemMessage(content=system), HumanMessage(content=question)])
+        result = adapter.invoke(messages)
+    except Exception as exc:
+        if record:
+            record({"type": "LLM", "purpose": purpose, "model": model.model, "status": "failed",
+                    "startedAt": started_at, "input": visible_messages(messages, secret), "output": None,
+                    "error": safe_error(exc, [secret]), "traceVersion": 1,
+                    "duration": round(time.perf_counter() - start, 3)})
+        raise
     finally:
         adapter.root_client.close()
     call = {
-        "type": "LLM",
-        "purpose": purpose,
-        "model": model.model,
+        "type": "LLM", "purpose": purpose, "model": model.model, "status": "success",
+        "startedAt": started_at, "input": visible_messages(messages, secret),
+        "output": trace_value({"content": result.content}, secret), "traceVersion": 1,
         "usage": result.usage_metadata,
         "duration": round(time.perf_counter() - start, 3),
     }

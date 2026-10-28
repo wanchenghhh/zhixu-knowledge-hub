@@ -171,6 +171,12 @@ class KnowledgeRetriever(BaseRetriever):
             model = self.db.get(Model, model_id) if model_id else None
             if model:
                 start = time.perf_counter()
+                from .agent_tools import trace_value
+                from .config import decrypt
+                from .db import utcnow
+                started_at = utcnow().isoformat() + "Z"
+                rerank_input = trace_value({"query": query, "documents": [d.page_content for d in candidates],
+                                            "topN": min(20, len(candidates))}, decrypt(model.secret))
                 try:
                     results, usage = rerank(
                         bounded_model(model),
@@ -185,9 +191,16 @@ class KnowledgeRetriever(BaseRetriever):
                         doc.metadata["rerankScore"] = item["relevance_score"]
                         reordered.append(doc)
                     candidates = reordered
-                    self.calls.append({"type": "Rerank", "model": model.model, "usage": usage})
+                    self.calls.append({"type": "Rerank", "model": model.model, "usage": usage,
+                                       "status": "success", "startedAt": started_at, "input": rerank_input,
+                                       "output": trace_value(results, decrypt(model.secret)), "traceVersion": 1,
+                                       "duration": round(time.perf_counter() - start, 3)})
                 except Exception as exc:
-                    self.warnings.append("重排失败，已使用融合结果：" + safe_error(exc))
+                    error = safe_error(exc, [decrypt(model.secret)])
+                    self.calls.append({"type": "Rerank", "model": model.model, "status": "failed",
+                                       "startedAt": started_at, "input": rerank_input, "output": None,
+                                       "error": error, "traceVersion": 1, "duration": round(time.perf_counter() - start, 3)})
+                    self.warnings.append("重排失败，已使用融合结果：" + error)
                 self.stages["rerank"] = time.perf_counter() - start
             elif any(kb.rerank for kb in kbs):
                 self.warnings.append("尚未绑定重排模型，本次使用融合结果")

@@ -4,6 +4,7 @@ import base64
 import json
 import math
 import operator
+import re
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -12,6 +13,8 @@ from langchain_core.tools import StructuredTool
 from .db import Skill, session_factory
 from .processing import bounded_model
 from .providers import llm
+from .config import decrypt
+from .security import safe_error
 
 OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
        ast.Div: operator.truediv, ast.Mod: operator.mod, ast.Pow: operator.pow}
@@ -40,6 +43,27 @@ def calculate(expression):
             raise ValueError('计算结果超出范围')
         return result
     return visit(tree.body)
+
+
+def trace_value(value, secret, limit=30000):
+    """Preserve visible messages while masking credentials and signalling truncation."""
+    if isinstance(value, dict):
+        return {str(k): ("[已隐藏]" if re.search(r"(?i)^(authorization|cookie|api[_-]?key|secret|token)$", str(k)) else trace_value(v, secret, limit)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [trace_value(v, secret, limit) for v in value[:100]] + (["[列表已截断]"] if len(value) > 100 else [])
+    if isinstance(value, str):
+        if secret:
+            value = value.replace(secret, "[已隐藏]")
+        value = re.sub(r"(?i)(bearer\s+|api[_-]?key[\s:=\"']+|accesskeysecret[\s:=\"']+)[^\s,\"'}]+", r"\1[已隐藏]", value)
+        value = re.sub(r"\bsk-[A-Za-z0-9_-]+", "[已隐藏]", value)
+        return value[:limit] + ("\n[内容已截断]" if len(value) > limit else "")
+    return value if value is None or isinstance(value, (bool, int, float)) else str(value)
+
+
+def visible_messages(messages, secret):
+    return [{"role": m.type, "content": trace_value(m.content, secret),
+             **({"tool_calls": trace_value(m.tool_calls, secret)} if getattr(m, "tool_calls", None) else {}),
+             **({"tool_call_id": m.tool_call_id} if getattr(m, "tool_call_id", None) else {})} for m in messages]
 
 
 def agent_complete(model, system, question, config, *, purpose, record=None):
@@ -107,13 +131,28 @@ def agent_complete(model, system, question, config, *, purpose, record=None):
         lookup = {t.name: t for t in tools}
         messages = [SystemMessage(content=system + instructions), HumanMessage(content=question)]
         usage = []
+        secret = decrypt(model.secret)
         try:
             total_calls = 0
             for round_number in range(5):
                 started = time.perf_counter()
-                response = agent.invoke(messages)
-                call = {'type': 'LLM', 'purpose': purpose, 'model': model.model,
-                        'usage': response.usage_metadata, 'duration': round(time.perf_counter() - started, 3)}
+                utc_started = datetime.now(ZoneInfo('UTC')).isoformat()
+                input_messages = visible_messages(messages, secret)
+                try:
+                    response = agent.invoke(messages)
+                except Exception as exc:
+                    if record:
+                        record({'type': 'LLM', 'purpose': purpose, 'model': model.model, 'round': round_number + 1,
+                                'status': 'failed', 'input': input_messages, 'output': None, 'startedAt': utc_started,
+                                'error': safe_error(exc, [secret]), 'duration': round(time.perf_counter() - started, 3),
+                                'traceVersion': 1})
+                    raise
+                call = {'type': 'LLM', 'purpose': purpose, 'model': model.model, 'round': round_number + 1,
+                        'status': 'success', 'startedAt': utc_started, 'input': input_messages,
+                        'output': {'content': trace_value(response.content, secret),
+                                   'tool_calls': trace_value(response.tool_calls, secret)},
+                        'usage': response.usage_metadata, 'duration': round(time.perf_counter() - started, 3),
+                        'traceVersion': 1}
                 usage.append(response.usage_metadata)
                 if record:
                     record(call)
@@ -132,18 +171,21 @@ def agent_complete(model, system, question, config, *, purpose, record=None):
                     name = call.get('name', '')
                     args = call.get('args', {})
                     started = time.perf_counter()
+                    utc_started = datetime.now(ZoneInfo('UTC')).isoformat()
                     try:
                         if name not in lookup or not isinstance(args, dict):
                             raise ValueError('工具不存在或未授权')
                         result = lookup[name].invoke(args)
                         outcome, status = str(result), 'success'
                     except Exception as exc:
-                        outcome, status = f'工具调用失败：{type(exc).__name__}', 'failed'
+                        outcome, status = f'工具调用失败：{safe_error(exc, [secret])}', 'failed'
                     if len(outcome) > 30000:
                         outcome = outcome[:30000] + '\n[结果已截断]'
                     if record:
                         record({'type': 'Skill' if name == 'activate_skill' else 'Tool', 'purpose': purpose,
-                                'name': name, 'status': status, 'input': args, 'output': outcome[:4000],
+                                'name': name, 'status': status, 'startedAt': utc_started, 'round': round_number + 1, 'toolCallId': call.get('id'),
+                                'input': trace_value(args, secret), 'output': trace_value(outcome, secret),
+                                'error': trace_value(outcome, secret) if status == 'failed' else None, 'traceVersion': 1,
                                 'duration': round(time.perf_counter() - started, 3)})
                     messages.append(ToolMessage(content=outcome, tool_call_id=call['id']))
             raise ValueError('工具调用超过运行次数上限')

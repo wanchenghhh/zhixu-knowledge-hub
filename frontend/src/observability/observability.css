@@ -301,3 +301,130 @@
 .obs-drawer .ant-drawer-content-wrapper {
   min-width: 1020px;
 }
+.trace-layout {
+  display: grid;
+  grid-template-columns: 245px minmax(450px, 1fr) 220px;
+  min-height: 100%;
+}
+.trace-nav,
+.trace-summary {
+  background: #fff;
+  padding: 22px 16px;
+}
+.trace-nav {
+  border-right: 1px solid #e4e9ef;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.trace-nav h3,
+.trace-summary h3 {
+  font-size: 14px;
+  margin: 0;
+}
+.trace-nav p,
+.trace-nav a,
+.trace-muted {
+  font-size: 12px;
+  color: #64748b;
+}
+.trace-nav a {
+  line-height: 1.5;
+  color: #526174;
+}
+.trace-nav a span {
+  color: #2563eb;
+}
+.trace-main {
+  padding: 22px;
+  min-width: 0;
+}
+.trace-card {
+  background: white;
+  border: 1px solid #e4e9ef;
+  border-radius: 9px;
+  padding: 16px;
+  margin: 16px 0;
+  scroll-margin-top: 15px;
+}
+.trace-card h3 {
+  font-size: 15px;
+  margin: 0 0 14px;
+}
+.trace-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.trace-value {
+  min-width: 0;
+}
+.trace-value h4 {
+  font-size: 12px;
+  color: #526174;
+  margin: 10px 0;
+}
+.trace-value pre,
+.trace-code pre {
+  background: #f6f8fb;
+  border: 1px solid #e4e9ef;
+  border-radius: 6px;
+  padding: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 420px;
+  overflow: auto;
+  font:
+    12px/1.7 ui-monospace,
+    monospace;
+  margin: 0;
+}
+.trace-missing {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.trace-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.trace-head strong {
+  margin-right: 10px;
+}
+.trace-seq {
+  display: inline-grid;
+  place-items: center;
+  background: #edf4ff;
+  color: #2563eb;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  margin-right: 12px;
+  font-size: 12px;
+}
+.trace-metrics {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+  font-size: 12px;
+  color: #64748b;
+}
+.trace-code {
+  border-top: 1px solid #e4e9ef;
+  padding: 12px 0;
+  font-size: 12px;
+  color: #526174;
+}
+.trace-code summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #2563eb;
+}
+.trace-code p {
+  line-height: 1.7;
+}
+.trace-summary {
+  border-left: 1px solid #e4e9ef;
+}

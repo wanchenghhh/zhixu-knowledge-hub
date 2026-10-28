@@ -162,6 +162,16 @@ def run_job(job_id):
         completed = list(job.options.get("completed", []))
         job.finished = len(completed)
         db.commit()
+        def trace_stage(name, file, input_value, output_value, began, status="success", error=None):
+            from .agent_tools import trace_value
+            event = {"type": "Pipeline", "name": name, "status": status, "traceVersion": 1,
+                     "startedAt": began[0], "duration": round(time.monotonic() - began[1], 3),
+                     "fileId": file.id if file else None, "input": trace_value(input_value, ""),
+                     "output": trace_value(output_value, ""), "error": safe_error(error) if error else None}
+            job.options = {**job.options, "traceEvents": [*job.options.get("traceEvents", []), event][-500:]}
+            job.touched = utcnow()
+            db.commit()
+
         generation = job.options.get("generation", kb.generation)
         model_id = job.options.get("modelId", kb.embedding)
         for file_id in job.file_ids:
@@ -177,6 +187,8 @@ def run_job(job_id):
                 job.options = {**job.options, "errors": errors}
                 db.commit()
                 continue
+            stage_name = "文档解析" if job.kind in {"parse", "prepare"} else "向量化与索引写入"
+            began = (utcnow().isoformat() + "Z", time.monotonic())
             try:
                 job.touched = utcnow()
                 job.stage = "解析中" if job.kind in {"parse", "prepare"} else "向量化中"
@@ -185,16 +197,24 @@ def run_job(job_id):
                 file.error = None
                 db.commit()
                 if job.kind in {"parse", "prepare"}:
-                    if not file.blocks:
+                    had_blocks = bool(file.blocks)
+                    if not had_blocks:
                         file.blocks = parse_file(file, db, job)
                         db.commit()
                     if not file.blocks:
                         raise ValueError("未识别到文字，请检查文档内容或使用增强解析")
+                    trace_stage("文档解析", file, {"file": file.name, "parseMode": file.options.get("parseMode")},
+                                {"blocks": file.blocks, "reused": had_blocks}, began)
+                    stage_name = "元数据与切分预览"
+                    began = (utcnow().isoformat() + "Z", time.monotonic())
                     if "strategy" in file.options:
                         prepare_file(db, kb, file, job, started + 90)
                         calls = list(job.usage.get("calls", []))
                     else:
                         split_blocks(file.blocks, file.options)
+                    trace_stage(stage_name, file, {"options": file.options},
+                                {"metadata": file.metadata_values, "documents": file.preparation.get("documents"),
+                                 "note": "旧版解析未保存切分结果" if "strategy" not in file.options else None}, began)
                     if file.activated is None:
                         file.status = "preview"
                 else:
@@ -204,6 +224,9 @@ def run_job(job_id):
                     usage = index_documents(
                         db, kb, file, model, generation, file.options, job, deadline=started + 90
                     )
+                    trace_stage(stage_name, file, {"model": model.model, "generation": generation,
+                                            "preparedCount": len(file.preparation.get("documents", []))},
+                                {"generation": generation, "fileId": file.id, "status": "索引已写入"}, began)
                     if settings().queue_mode == "vercel":
                         calls = list(job.usage.get("calls", []))
                     else:
@@ -247,6 +270,7 @@ def run_job(job_id):
                 db.rollback()
                 job, file = db.get(Job, job_id), db.get(File, file_id)
                 error = safe_error(exc)
+                trace_stage(stage_name, file, {"fileId": file_id}, None, began, status="failed", error=exc)
                 errors[file_id] = f"{file.name if file else file_id}：{error}"
                 job.options = {**job.options, "errors": errors}
                 if file:

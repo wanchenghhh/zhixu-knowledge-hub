@@ -6,7 +6,7 @@ import httpx
 from langchain_core.embeddings import Embeddings
 from langchain_openai import ChatOpenAI
 from .config import decrypt
-from .db import Model
+from .db import Model, utcnow
 
 
 def endpoint(model: Model, suffix: str):
@@ -52,6 +52,7 @@ class CloudEmbeddings(Embeddings):
             if self.model.dimension:
                 payload["dimensions"] = self.model.dimension
             began = time.perf_counter()
+            started_at = utcnow().isoformat() + "Z"
             body = post(self.model, "embeddings", payload)
             data = sorted(body.get("data", []), key=lambda item: item["index"])
             if len(data) != len(batch) or [item["index"] for item in data] != list(range(len(batch))):
@@ -65,9 +66,15 @@ class CloudEmbeddings(Embeddings):
                 if not sum(v * v for v in vector):
                     raise ValueError("向量模型返回零向量")
                 vectors.append(vector)
+            from .agent_tools import trace_value
+            secret = decrypt(self.model.secret)
             self.usage.append(
                 {
-                    "type": "Embedding",
+                    "type": "Embedding", "status": "success", "traceVersion": 1,
+                    "startedAt": started_at,
+                    "input": trace_value({"texts": batch, "dimensions": self.model.dimension}, secret),
+                    "output": {"vectorCount": len(data), "dimensions": len(data[0].get("embedding", [])) if data else 0,
+                               "note": "向量数值未记录"},
                     "model": self.model.model,
                     "usage": body.get("usage"),
                     "duration": round(time.perf_counter() - began, 3),

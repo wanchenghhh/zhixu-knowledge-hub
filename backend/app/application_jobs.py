@@ -36,7 +36,8 @@ def run_log(db, run, status):
     row.answer = run.output
     row.status = status
     row.tokens = tokens
-    row.duration = round(sum(c.get("duration", 0) for c in calls), 3)
+    # Retrieval spans wrap embedding/rerank calls; exclude the wrapper from summed activity time.
+    row.duration = round(sum(c.get("duration", 0) for c in calls if c.get("type") != "Retrieval"), 3)
     row.sources = run.sources
     row.error = run.error
     row.details = {
@@ -45,6 +46,9 @@ def run_log(db, run, status):
         "applicationRevision": run.revision,
         "runId": run.id,
         "sectionCount": len(run.sections),
+        "outline": run.outline,
+        "inputs": run.inputs,
+        "sections": run.sections,
         "elapsed": round((utcnow() - run.created).total_seconds(), 3),
     }
 
@@ -165,6 +169,13 @@ def process_run(run_id):
                 db.commit()
                 return False
             local_sources = [as_source(d) for d in documents]
+            from .agent_tools import trace_value
+            record({"type": "Retrieval", "name": "报告章节知识检索", "status": "success", "traceVersion": 1,
+                    "input": trace_value({"question": run.question, "section": title, "kbIds": run.config["kbIds"],
+                                          "currentOnly": run.config["currentOnly"],
+                                          "metadataFilters": run.config.get("metadataFilters", [])}, decrypt(model.secret)),
+                    "output": trace_value({"sources": local_sources, "warnings": retriever.warnings}, decrypt(model.secret)),
+                    "duration": round(elapsed, 3)})
             if documents:
                 context = "\n\n".join(
                     f"[{i + 1}] {s['name']}（{s['location']}）\n{s['text']}"

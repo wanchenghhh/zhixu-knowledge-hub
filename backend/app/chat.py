@@ -76,6 +76,14 @@ async def stream_chat(body, role, browser_id, conversation_id, request, turn_id,
 
         documents, calls, stages, warnings = await asyncio.to_thread(search)
         all_sources = [as_source(d) for d in documents]
+        from .agent_tools import trace_value
+        trace_secret = decrypt(model.secret)
+        calls.append({"type": "Retrieval", "name": "知识检索", "status": "success", "traceVersion": 1,
+                      "input": trace_value({"query": search_question, "kbIds": body.kbIds, "topK": body.topK,
+                                            "threshold": body.threshold, "rerank": body.rerank,
+                                            "currentOnly": body.currentOnly, "metadataFilters": [f.model_dump() for f in body.metadataFilters]}, trace_secret),
+                      "output": trace_value({"sources": all_sources, "warnings": warnings}, trace_secret),
+                      "duration": round(sum(stages.values()), 3) if stages else 0})
         agent_config = app_context["config"] if app_context else {}
         has_tools = bool(agent_config.get("skillIds") or agent_config.get("tools"))
         if not documents and not has_tools:
@@ -135,6 +143,12 @@ async def stream_chat(body, role, browser_id, conversation_id, request, turn_id,
                 finally:
                     await stream.aclose()
                     await adapter.root_async_client.close()
+                    from .agent_tools import visible_messages
+                    calls.append({"type": "LLM", "name": "流式回答", "model": model.model,
+                                  "status": "success" if text else "unknown", "traceVersion": 1,
+                                  "input": visible_messages(prompt.format_messages(**values), trace_secret),
+                                  "output": trace_value({"content": text}, trace_secret), "usage": usage,
+                                  "duration": round(time.perf_counter() - generated_at, 3)})
             stages["generation"] = time.perf_counter() - generated_at
             status = "success"
     except asyncio.CancelledError:

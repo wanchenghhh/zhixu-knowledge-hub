@@ -91,6 +91,10 @@ def file_dict(f, db):
     }
 
 
+def summarize_calls(calls):
+    return [{k: v for k, v in call.items() if k not in {"input", "output"}} for call in calls]
+
+
 def job_dict(j):
     return {
         "id": j.id,
@@ -109,7 +113,8 @@ def job_dict(j):
         "date": date(j.created),
         "fileIds": j.file_ids,
         "error": j.error,
-        "usage": j.usage,
+        "usage": {**j.usage, "calls": summarize_calls(j.usage.get("calls", []))},
+        "traceEvents": summarize_calls(j.options.get("traceEvents", [])),
     }
 
 
@@ -128,7 +133,8 @@ def log_dict(log):
         "date": date(log.created),
         "sources": log.sources,
         "error": log.error,
-        "details": log.details,
+        "details": {**{k: v for k, v in log.details.items() if k not in {"calls", "sections", "inputs"}},
+                    "calls": summarize_calls(log.details.get("calls", []))},
     }
 
 
@@ -220,7 +226,9 @@ def state_dict(db, role, browser_id):
                     "date": date(run.created),
                     "fileIds": [],
                     "error": run.error,
-                    "usage": run.usage,
+                    "usage": {**run.usage, "calls": summarize_calls(run.usage.get("calls", []))},
+                    "outline": run.outline,
+                    "question": run.question,
                 }
             )
     ocr = db.get(Setting, "ocr")

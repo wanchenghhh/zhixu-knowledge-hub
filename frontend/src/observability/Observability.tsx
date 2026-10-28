@@ -29,6 +29,7 @@ import { useStore } from "../store";
 import { demoRuns, kindLabels, statusLabels, summary } from "./demo";
 import type { DemoRun, Span } from "./demo";
 import "./observability.css";
+import RealObservability from "./RealObservability";
 
 const views = [
   { key: "overview", label: "总览" },
@@ -363,7 +364,7 @@ function RunDetail({
     </Drawer>
   );
 }
-export default function Observability() {
+function ObservabilityDemo() {
   const navigate = useNavigate();
   const { state, live } = useStore();
   const [params, setParams] = useSearchParams();
@@ -836,4 +837,9 @@ export default function Observability() {
       </Modal>
     </div>
   );
+}
+
+export default function Observability() {
+  const { live } = useStore();
+  return live ? <RealObservability /> : <ObservabilityDemo />;
 }

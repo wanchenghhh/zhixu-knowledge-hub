@@ -122,6 +122,29 @@ class Skill(Base):
     created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class EvaluationDataset(Base):
+    __tablename__ = "evaluation_datasets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(Text, default="")
+    created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class EvaluationCase(Base):
+    __tablename__ = "evaluation_cases"
+    __table_args__ = (UniqueConstraint("dataset_id", "log_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("evaluation_datasets.id", ondelete="CASCADE"), index=True)
+    log_id: Mapped[str] = mapped_column(String(36), index=True)
+    label: Mapped[str] = mapped_column(String(10))
+    note: Mapped[str] = mapped_column(Text, default="")
+    expected: Mapped[str] = mapped_column(Text, default="")
+    snapshot: Mapped[dict] = mapped_column(JSON_COLUMN)
+    created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Application(Base):
     __tablename__ = "applications"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

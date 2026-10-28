@@ -16,7 +16,10 @@ def upload(
     response = client.post(
         f"/api/v1/knowledge/{kb['id']}/upload",
         files={"file": (name, data)},
-        data={"consent": "true", "options": json.dumps({"chunkSize": 200, "overlap": 20, "extractMetadata": False})},
+        data={
+            "consent": "true",
+            "options": json.dumps({"chunkSize": 200, "overlap": 20, "extractMetadata": False}),
+        },
     )
     assert response.status_code == 200, response.text
     result = response.json()
@@ -63,6 +66,12 @@ def test_complete_import_retrieval_chat_logs(client, models, knowledge):
     assert log["sources"][0]["fileId"] == file_id
     assert "[999]" not in log["answer"] and "[来源不可用]" in log["answer"]
     assert state["sessions"][0]["messages"][-1]["sources"]
+    assert all("input" not in c and "output" not in c for c in log["details"]["calls"])
+    recorded = client.get(f"/api/v1/observability/runs/{log['id']}").json()["calls"]
+    assert any(c.get("type") == "Retrieval" and c.get("input", {}).get("query") for c in recorded)
+    assert any(c.get("type") == "LLM" and c.get("output", {}).get("content") for c in recorded)
+    job_events = next(t for t in state["tasks"] if t["id"] == job_id)["traceEvents"]
+    assert any(e["name"] == "向量化与索引写入" and e["status"] == "success" for e in job_events)
     assert client.get(f"/api/v1/files/{file_id}/download").content.startswith("# 费用报销".encode())
 
 
@@ -166,7 +175,10 @@ def test_upload_consent_duplicate_and_validation(client, knowledge):
     response = client.post(
         f"/api/v1/knowledge/{knowledge['id']}/upload",
         files={"file": ("other.md", b"# Travel\nReimbursement requires invoices and payment receipts.\n")},
-        data={"consent": "true", "options": json.dumps({"chunkSize": 200, "overlap": 20, "extractMetadata": False})},
+        data={
+            "consent": "true",
+            "options": json.dumps({"chunkSize": 200, "overlap": 20, "extractMetadata": False}),
+        },
     )
     assert response.status_code == 409
     assert client.post("/api/v1/models", json={"apiKey": "test-never-echo"}).status_code == 422

@@ -15,6 +15,7 @@ import {
   ChevronDown,
   CircleHelp,
   Database,
+  ClipboardCheck,
   FlaskConical,
   Layers3,
   LayoutDashboard,
@@ -32,6 +33,7 @@ import { useStore } from "./store";
 import { initialState, roles } from "./data";
 import type { Role } from "./data";
 import { visibleKnowledge } from "./domain";
+const EvaluationSets = lazy(() => import("./evaluation/EvaluationSets"));
 const Observability = lazy(() => import("./observability/Observability"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const KnowledgePage = lazy(() => import("./pages/Knowledge"));
@@ -64,6 +66,12 @@ const navs = [
     icon: FlaskConical,
     group: "管理与监测",
   },
+  {
+    path: "/evaluation",
+    label: "评测集",
+    icon: ClipboardCheck,
+    group: "管理与监测",
+  },
   { path: "/models", label: "模型服务", icon: Settings2, group: "管理与监测" },
 ];
 export default function App() {
@@ -71,11 +79,10 @@ export default function App() {
   const nav = useNavigate();
   const location = useLocation();
   const prototypeView =
-    location.pathname === "/observability" ||
-    (!live &&
-      (location.pathname.startsWith("/applications") ||
-        location.pathname === "/ingestion" ||
-        location.pathname.endsWith("/design")));
+    !live &&
+    (location.pathname.startsWith("/applications") ||
+      location.pathname === "/ingestion" ||
+      location.pathname.endsWith("/design"));
   const { message, modal } = AntApp.useApp();
   const [help, setHelp] = useState(false);
   const [mobile, setMobile] = useState(false);
@@ -133,7 +140,7 @@ export default function App() {
           <span>
             企业知识空间
             <small>
-              {prototypeView ? "交互原型 · v1.2.5" : "通用版 · v1.2.5"}
+              {prototypeView ? "交互原型 · v1.2.6" : "通用版 · v1.2.6"}
             </small>
           </span>
           <ChevronDown size={14} />
@@ -296,7 +303,7 @@ export default function App() {
           <span>
             <span className="tiny-dot" />
             {prototypeView
-              ? "交互原型 v1.2.5"
+              ? "交互原型 v1.2.6"
               : live
                 ? "知识中台"
                 : "Web 体验版 v1.1"}
@@ -370,6 +377,16 @@ export default function App() {
                 }
               />
               <Route
+                path="/evaluation"
+                element={
+                  state.role === "user" ? (
+                    <Navigate to="/chat" replace />
+                  ) : (
+                    <EvaluationSets />
+                  )
+                }
+              />
+              <Route
                 path="/logs"
                 element={
                   state.role === "user" ? (
@@ -397,9 +414,9 @@ export default function App() {
           <span>知序 · 让知识有序流动</span>
           <span>
             {prototypeView
-              ? "原型版本 v1.2.5"
+              ? "原型版本 v1.2.6"
               : live
-                ? "服务版本 v1.2.5"
+                ? "服务版本 v1.2.6"
                 : "Web 体验版 v1.1"}{" "}
             <span>·</span>{" "}
             {prototypeView ? "交互示例" : live ? "业务数据" : "演示数据"}

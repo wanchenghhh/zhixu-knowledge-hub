@@ -1,5 +1,6 @@
 import { api, write } from "../api";
 import ModelPresetSetup from "../ModelPresetSetup";
+import CaseCollector from "../evaluation/CaseCollector";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -360,6 +361,7 @@ export function Logs() {
   }, [live, state.role]);
   const [period, setPeriod] = useState("all");
   const [detail, setDetail] = useState<LogEntry | null>(null);
+  const [caseLogId, setCaseLogId] = useState<string | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const all = accessibleLogs(state.logs, state.knowledge, state.role);
   const logs = all.filter(
@@ -648,6 +650,11 @@ export function Logs() {
               {live ? "REQUEST TRACE · 实际调用" : "REQUEST TRACE · 演示链路"}
             </div>
             <h2 className="log-detail-question">{detail.question}</h2>
+            {live ? (
+              <Button onClick={() => setCaseLogId(detail.id)}>
+                加入评测集
+              </Button>
+            ) : null}
             <div className="detail-meta">
               <Status status={detail.status} />
               <span>{roles[detail.role]}</span>
@@ -747,6 +754,7 @@ export function Logs() {
           </>
         ) : null}
       </Drawer>
+      <CaseCollector logId={caseLogId} onClose={() => setCaseLogId(null)} />
       <SourceDrawer source={source} onClose={() => setSource(null)} />
     </div>
   );

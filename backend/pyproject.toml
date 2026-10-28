@@ -1,6 +1,6 @@
 [project]
 name = "zhixu-knowledge-backend"
-version = "1.2.5"
+version = "1.2.6"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi>=0.115,<1",

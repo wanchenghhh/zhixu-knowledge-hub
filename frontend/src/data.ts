@@ -43,6 +43,22 @@ export interface KnowledgeFile {
   chunkCount?: number;
   preview?: { text: string; location: string }[];
 }
+export interface TraceCall {
+  type: string;
+  model?: string;
+  purpose?: string;
+  name?: string;
+  status?: string;
+  input?: unknown;
+  output?: unknown;
+  error?: string | null;
+  startedAt?: string;
+  duration?: number;
+  round?: number;
+  toolCallId?: string;
+  traceVersion?: number;
+  usage?: Record<string, number> | null;
+}
 export interface Task {
   applicationId?: string;
   id: string;
@@ -58,17 +74,12 @@ export interface Task {
     | "awaiting_outline";
   kind?: string;
   stage?: string;
-  usage?: {
-    calls?: {
-      type: string;
-      model?: string;
-      name?: string;
-      status?: string;
-      input?: unknown;
-      output?: string;
-      usage?: Record<string, number> | null;
-    }[];
-  };
+  usage?: { calls?: TraceCall[] };
+  traceEvents?: TraceCall[];
+  outline?: string[];
+  question?: string;
+  inputs?: Record<string, string>;
+  sections?: unknown[];
   total: number;
   finished: number;
   date: string;
@@ -111,15 +122,10 @@ export interface LogEntry {
     stages?: Record<string, number>;
     usage?: Record<string, number>;
     warnings?: string[];
-    calls?: {
-      type: string;
-      model?: string;
-      name?: string;
-      status?: string;
-      input?: unknown;
-      output?: string;
-      usage?: Record<string, number> | null;
-    }[];
+    calls?: TraceCall[];
+    outline?: string[];
+    inputs?: Record<string, string>;
+    sections?: unknown[];
   };
   id: string;
   role: Role;
