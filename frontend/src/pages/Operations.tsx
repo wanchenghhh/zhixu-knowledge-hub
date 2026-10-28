@@ -337,6 +337,7 @@ export function Tasks() {
   );
 }
 export function Logs() {
+  const nav = useNavigate();
   const { state, live } = useStore();
   const today = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Asia/Shanghai",
@@ -446,8 +447,14 @@ export function Logs() {
   };
   return (
     <div className="page">
+      <Button
+        onClick={() => nav("/observability?view=chat")}
+        style={{ marginBottom: 16 }}
+      >
+        返回可观测中心 · 原型
+      </Button>
       <PageHeading
-        title="日志监测"
+        title="对话日志"
         description="看见每一次检索与回答，持续优化知识服务质量。"
         actions={
           <Button

@@ -183,16 +183,21 @@ export default function LiveApplications() {
         description="配置不同场景，复用企业知识，独立管理发布与执行。"
         actions={
           canManage ? (
-            <Button
-              type="primary"
-              icon={<Plus size={16} />}
-              onClick={() => {
-                setName("");
-                setCreate(true);
-              }}
-            >
-              创建应用
-            </Button>
+            <>
+              <Button onClick={() => navigate("/observability?view=agent")}>
+                观测运行 · 原型
+              </Button>
+              <Button
+                type="primary"
+                icon={<Plus size={16} />}
+                onClick={() => {
+                  setName("");
+                  setCreate(true);
+                }}
+              >
+                创建应用
+              </Button>
+            </>
           ) : undefined
         }
       />

@@ -126,7 +126,7 @@ async def lifespan(app):
         await asyncio.to_thread(worker.join, 3)
 
 
-app = FastAPI(title="知序知识中台 API", version="1.2.3", lifespan=lifespan)
+app = FastAPI(title="知序知识中台 API", version="1.2.4", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=2048)
 app.include_router(uploads_router)
 app.include_router(knowledge_router)
@@ -190,7 +190,7 @@ def health(db: DB):
         "database": engine().dialect.name,
         "queue": settings().queue_mode,
         "mode": "live",
-        "version": "1.2.3",
+        "version": "1.2.4",
         "storage": settings().storage_backend,
         "uploadStrategy": "chunked" if settings().storage_backend == "vercel_blob" else "multipart",
     }

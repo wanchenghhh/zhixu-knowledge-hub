@@ -32,6 +32,7 @@ import { useStore } from "./store";
 import { initialState, roles } from "./data";
 import type { Role } from "./data";
 import { visibleKnowledge } from "./domain";
+const Observability = lazy(() => import("./observability/Observability"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const KnowledgePage = lazy(() => import("./pages/Knowledge"));
 const Applications = lazy(() => import("./pages/Applications"));
@@ -57,7 +58,12 @@ const navs = [
     group: "工作空间",
   },
   { path: "/tasks", label: "任务中心", icon: Workflow, group: "管理与监测" },
-  { path: "/logs", label: "日志监测", icon: FlaskConical, group: "管理与监测" },
+  {
+    path: "/observability",
+    label: "可观测中心",
+    icon: FlaskConical,
+    group: "管理与监测",
+  },
   { path: "/models", label: "模型服务", icon: Settings2, group: "管理与监测" },
 ];
 export default function App() {
@@ -65,10 +71,11 @@ export default function App() {
   const nav = useNavigate();
   const location = useLocation();
   const prototypeView =
-    !live &&
-    (location.pathname.startsWith("/applications") ||
-      location.pathname === "/ingestion" ||
-      location.pathname.endsWith("/design"));
+    location.pathname === "/observability" ||
+    (!live &&
+      (location.pathname.startsWith("/applications") ||
+        location.pathname === "/ingestion" ||
+        location.pathname.endsWith("/design")));
   const { message, modal } = AntApp.useApp();
   const [help, setHelp] = useState(false);
   const [mobile, setMobile] = useState(false);
@@ -81,6 +88,9 @@ export default function App() {
         : ["/knowledge", "/chat", "/applications"].includes(n.path)),
   );
   const current =
+    (location.pathname === "/logs"
+      ? navs.find((n) => n.path === "/observability")
+      : undefined) ||
     navs.find((n) => n.path !== "/" && location.pathname.startsWith(n.path)) ||
     (location.pathname === "/ingestion" ? navs[1] : navs[0]);
   useEffect(() => {
@@ -123,7 +133,7 @@ export default function App() {
           <span>
             企业知识空间
             <small>
-              {prototypeView ? "交互原型 · v1.2.3" : "通用版 · v1.2.3"}
+              {prototypeView ? "交互原型 · v1.2.4" : "通用版 · v1.2.4"}
             </small>
           </span>
           <ChevronDown size={14} />
@@ -148,7 +158,7 @@ export default function App() {
                     to={n.path}
                     onClick={() => setMobile(false)}
                     className={({ isActive }) =>
-                      `nav-item ${isActive ? "active" : ""}`
+                      `nav-item ${isActive || (n.path === "/observability" && location.pathname === "/logs") ? "active" : ""}`
                     }
                   >
                     <n.icon size={19} strokeWidth={1.8} />
@@ -286,7 +296,7 @@ export default function App() {
           <span>
             <span className="tiny-dot" />
             {prototypeView
-              ? "交互原型 v1.2.3"
+              ? "交互原型 v1.2.4"
               : live
                 ? "知识中台"
                 : "Web 体验版 v1.1"}
@@ -350,6 +360,16 @@ export default function App() {
                 }
               />
               <Route
+                path="/observability"
+                element={
+                  state.role === "user" ? (
+                    <Navigate to="/chat" replace />
+                  ) : (
+                    <Observability />
+                  )
+                }
+              />
+              <Route
                 path="/logs"
                 element={
                   state.role === "user" ? (
@@ -377,9 +397,9 @@ export default function App() {
           <span>知序 · 让知识有序流动</span>
           <span>
             {prototypeView
-              ? "原型版本 v1.2.3"
+              ? "原型版本 v1.2.4"
               : live
-                ? "服务版本 v1.2.3"
+                ? "服务版本 v1.2.4"
                 : "Web 体验版 v1.1"}{" "}
             <span>·</span>{" "}
             {prototypeView ? "交互示例" : live ? "业务数据" : "演示数据"}

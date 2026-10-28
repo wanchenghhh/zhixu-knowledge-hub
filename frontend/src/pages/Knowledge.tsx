@@ -129,6 +129,9 @@ function KnowledgeList() {
         actions={
           canManage ? (
             <>
+              <Button onClick={() => navigate("/observability?view=build")}>
+                观测构建 · 原型
+              </Button>
               <Button
                 icon={<Sparkles size={15} />}
                 onClick={() => navigate("/ingestion")}
