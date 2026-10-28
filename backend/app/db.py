@@ -112,6 +112,16 @@ class ChunkIndex(Base):
     embedding: Mapped[list] = mapped_column(Vector().with_variant(JSON, "sqlite"))
 
 
+class Skill(Base):
+    __tablename__ = "skills"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), index=True)
+    description: Mapped[str] = mapped_column(Text)
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    files: Mapped[dict] = mapped_column(JSON_COLUMN)
+    created: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Application(Base):
     __tablename__ = "applications"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

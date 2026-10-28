@@ -186,7 +186,7 @@ export function NewKnowledge({
         form.resetFields();
         onClose();
         onCreated?.(created.id);
-        message.success("知识库已创建");
+        message.success("知识库已创建，请继续导入资料");
       } catch (error) {
         message.error(String(error));
       }
@@ -235,7 +235,7 @@ export function NewKnowledge({
       open={open}
       onCancel={onClose}
       onOk={submit}
-      okText="创建知识库"
+      okText="创建并导入资料"
       cancelText="取消"
       width={520}
       destroyOnHidden

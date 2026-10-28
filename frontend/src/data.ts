@@ -61,7 +61,11 @@ export interface Task {
   usage?: {
     calls?: {
       type: string;
-      model: string;
+      model?: string;
+      name?: string;
+      status?: string;
+      input?: unknown;
+      output?: string;
       usage?: Record<string, number> | null;
     }[];
   };
@@ -109,7 +113,11 @@ export interface LogEntry {
     warnings?: string[];
     calls?: {
       type: string;
-      model: string;
+      model?: string;
+      name?: string;
+      status?: string;
+      input?: unknown;
+      output?: string;
       usage?: Record<string, number> | null;
     }[];
   };

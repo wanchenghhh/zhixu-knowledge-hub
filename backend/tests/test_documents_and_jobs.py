@@ -114,10 +114,13 @@ def test_edit_survives_rebuild(client, knowledge):
         f"/api/v1/chunks/{chunk['id']}", json={"text": "# 报销\n报销需要发票，27 天内提交。"}
     )
     assert response.status_code == 200, response.text
-    chunks = client.get(f"/api/v1/files/{id}/chunks").json()
-    assert "27 天" in chunks[0]["text"]
+    assert response.json()["queued"]
+    assert "15 天" in client.get(f"/api/v1/files/{id}/chunks").json()[0]["text"]
+    run_job(response.json()["task"]["id"])
+    assert "27 天" in client.get(f"/api/v1/files/{id}/chunks").json()[0]["text"]
     with session_factory()() as db:
-        assert "27 天" in db.get(File, id).blocks[0]["text"]
+        assert "15 天" in db.get(File, id).blocks[0]["text"]
+        assert "27 天" in db.get(File, id).preparation["documents"][0]["text"]
 
 
 def test_reindex_success_switches_pointer_and_drops_old_vectors(client, models, knowledge):
@@ -203,7 +206,7 @@ def test_enhanced_mode_keeps_md_local(client, knowledge):
     response = client.post(
         f"/api/v1/knowledge/{knowledge['id']}/upload",
         files={"file": ("local.md", "# Markdown\n无需 OCR 的纯文本".encode())},
-        data={"consent": "true", "options": json.dumps({"parseMode": "enhanced"})},
+        data={"consent": "true", "options": json.dumps({"parseMode": "enhanced", "extractMetadata": False})},
     )
     assert response.status_code == 200
     run_job(response.json()["task"]["id"])

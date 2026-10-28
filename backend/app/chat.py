@@ -76,7 +76,9 @@ async def stream_chat(body, role, browser_id, conversation_id, request, turn_id,
 
         documents, calls, stages, warnings = await asyncio.to_thread(search)
         all_sources = [as_source(d) for d in documents]
-        if not documents:
+        agent_config = app_context["config"] if app_context else {}
+        has_tools = bool(agent_config.get("skillIds") or agent_config.get("tools"))
+        if not documents and not has_tools:
             text = "当前知识库中未找到足够依据。请补充相关资料或换一种问法。"
             usage, status = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "empty"
             yield event("token", {"text": text})
@@ -95,39 +97,45 @@ async def stream_chat(body, role, browser_id, conversation_id, request, turn_id,
                     ("human", "历史对话：\n{history}\n当前问题：{question}"),
                 ]
             )
-            adapter = llm(model, streaming=True)
-            chain = prompt | adapter
+            values = {
+                "rules": "\n".join(k.prompt for k in kbs)
+                + ("\n应用指令：" + agent_config["prompt"] if app_context else ""),
+                "context": context or "没有检索到知识库依据；只可回答工具能够确认的内容，其他内容明确说明缺少依据。",
+                "history": "\n".join(f"{m['kind']}: {m['text']}" for m in history)[-6000:],
+                "question": body.question
+                + ("\n输入字段：" + json.dumps(app_context["inputs"], ensure_ascii=False) if app_context else ""),
+            }
             generated_at = time.perf_counter()
-            stream = chain.astream(
-                {
-                    "rules": "\n".join(k.prompt for k in kbs)
-                    + ("\n应用指令：" + app_context["config"]["prompt"] if app_context else ""),
-                    "context": context,
-                    "history": "\n".join(f"{m['kind']}: {m['text']}" for m in history)[-6000:],
-                    "question": body.question
-                    + (
-                        "\n输入字段：" + json.dumps(app_context["inputs"], ensure_ascii=False)
-                        if app_context
-                        else ""
-                    ),
-                }
-            )
-            try:
-                async for chunk in stream:
-                    if await request.is_disconnected():
-                        raise asyncio.CancelledError()
-                    part = chunk.text
-                    if part:
-                        if not text:
-                            stages["firstAnswer"] = time.perf_counter() - start
-                        text += part
-                        yield event("token", {"text": part})
-                    if chunk.usage_metadata:
-                        usage = dict(chunk.usage_metadata)
-            finally:
-                await stream.aclose()
-                await adapter.root_async_client.close()
-                stages["generation"] = time.perf_counter() - generated_at
+            if has_tools:
+                from .agent_tools import agent_complete
+                prompt_messages = prompt.format_messages(**values)
+                yield event("status", {"stage": "正在调用应用工具与 Skill"})
+                text, usage = await asyncio.to_thread(
+                    agent_complete, model, prompt_messages[0].content, prompt_messages[1].content,
+                    agent_config, purpose="application_chat", record=calls.append,
+                )
+                if text:
+                    stages["firstAnswer"] = time.perf_counter() - start
+                    yield event("token", {"text": text})
+            else:
+                adapter = llm(model, streaming=True)
+                stream = (prompt | adapter).astream(values)
+                try:
+                    async for chunk in stream:
+                        if await request.is_disconnected():
+                            raise asyncio.CancelledError()
+                        part = chunk.text
+                        if part:
+                            if not text:
+                                stages["firstAnswer"] = time.perf_counter() - start
+                            text += part
+                            yield event("token", {"text": part})
+                        if chunk.usage_metadata:
+                            usage = dict(chunk.usage_metadata)
+                finally:
+                    await stream.aclose()
+                    await adapter.root_async_client.close()
+            stages["generation"] = time.perf_counter() - generated_at
             status = "success"
     except asyncio.CancelledError:
         status, usage = "cancelled", None

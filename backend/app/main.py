@@ -1,3 +1,4 @@
+from .skills_api import router as skills_router
 import asyncio
 import hashlib
 import json
@@ -126,12 +127,13 @@ async def lifespan(app):
         await asyncio.to_thread(worker.join, 3)
 
 
-app = FastAPI(title="知序知识中台 API", version="1.2.4", lifespan=lifespan)
+app = FastAPI(title="知序知识中台 API", version="1.2.5", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=2048)
 app.include_router(uploads_router)
 app.include_router(knowledge_router)
 app.include_router(applications_router)
 app.include_router(model_presets_router)
+app.include_router(skills_router)
 
 
 @app.middleware("http")
@@ -190,7 +192,7 @@ def health(db: DB):
         "database": engine().dialect.name,
         "queue": settings().queue_mode,
         "mode": "live",
-        "version": "1.2.4",
+        "version": "1.2.5",
         "storage": settings().storage_backend,
         "uploadStrategy": "chunked" if settings().storage_backend == "vercel_blob" else "multipart",
     }

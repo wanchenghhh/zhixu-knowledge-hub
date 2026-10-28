@@ -40,7 +40,6 @@ import {
   Search,
   Settings2,
   ShieldCheck,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useStore } from "../store";
@@ -58,7 +57,6 @@ import {
   Status,
 } from "../components";
 import { nowLabel, retrieveDemo, visibleKnowledge } from "../domain";
-import ImportWizard from "../ImportWizard";
 export default function KnowledgePage() {
   return <KnowledgeRouter />;
 }
@@ -131,12 +129,6 @@ function KnowledgeList() {
             <>
               <Button onClick={() => navigate("/observability?view=build")}>
                 观测构建 · 原型
-              </Button>
-              <Button
-                icon={<Sparkles size={15} />}
-                onClick={() => navigate("/ingestion")}
-              >
-                {live ? "智能导入与加工" : "智能导入原型"}
               </Button>
               <AddButton onClick={() => setCreate(true)} />
             </>
@@ -349,16 +341,15 @@ function KnowledgeList() {
       <NewKnowledge
         open={create}
         onClose={() => setCreate(false)}
-        onCreated={(id) => navigate(`/knowledge/${id}?import=1`)}
+        onCreated={(id) => navigate(`/knowledge/${id}/design`)}
       />
     </div>
   );
 }
 function KnowledgeDetail({ id }: { id: string }) {
-  const { state, live } = useStore();
+  const { state } = useStore();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const [importOpen, setImportOpen] = useState(params.get("import") === "1");
   const [source, setSource] = useState<Source | null>(null);
   const kb = visibleKnowledge(state.knowledge, state.role).find(
     (k) => k.id === id,
@@ -366,6 +357,10 @@ function KnowledgeDetail({ id }: { id: string }) {
   const canManage = state.role !== "user";
   const activeTab = params.get("tab") || "files";
   useEffect(() => setSource(null), [state.role, id]);
+  useEffect(() => {
+    if (params.get("import") === "1" && state.role !== "user")
+      navigate(`/knowledge/${id}/design`, { replace: true });
+  }, [params, id, state.role, navigate]);
   if (!kb)
     return (
       <EmptyPanel
@@ -388,7 +383,7 @@ function KnowledgeDetail({ id }: { id: string }) {
       children: (
         <FilePanel
           kb={kb}
-          onImport={() => setImportOpen(true)}
+          onImport={() => navigate(`/knowledge/${id}/design`)}
           onSource={setSource}
         />
       ),
@@ -440,16 +435,8 @@ function KnowledgeDetail({ id }: { id: string }) {
         <div className="heading-actions">
           {canManage ? (
             <Button
-              icon={<Sparkles size={15} />}
-              onClick={() => navigate(`/knowledge/${id}/design`)}
-            >
-              {live ? "智能导入与加工" : "智能导入原型"}
-            </Button>
-          ) : null}
-          {canManage ? (
-            <Button
               icon={<CloudUpload size={16} />}
-              onClick={() => setImportOpen(true)}
+              onClick={() => navigate(`/knowledge/${id}/design`)}
             >
               导入知识
             </Button>
@@ -482,15 +469,6 @@ function KnowledgeDetail({ id }: { id: string }) {
         onChange={(tab) => setParams({ tab })}
         items={tabs}
         destroyOnHidden
-      />
-      <ImportWizard
-        kbId={id}
-        open={importOpen && canManage}
-        onClose={() => {
-          setImportOpen(false);
-          if (params.has("import")) setParams({ tab: "files" });
-        }}
-        onChat={() => navigate(`/chat?kb=${id}`)}
       />
       <SourceDrawer source={source} onClose={() => setSource(null)} />
     </div>

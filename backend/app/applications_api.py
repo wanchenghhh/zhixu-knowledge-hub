@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, update
 from pydantic import BaseModel, Field
-from .db import Application, ApplicationRun, Conversation, File, session_factory, utcnow
+from .db import Application, ApplicationRun, Conversation, File, Skill, session_factory, utcnow
 from .schemas import ApplicationConfig, ApplicationInput, ChatInput
 from .security import role_header, browser_header, managed, get_kb
 from .processing import resolve_llm
@@ -48,6 +48,12 @@ def validate_config(db, config, role):
     value["model"] = model.id
     kbs = [get_kb(db, id, role) for id in value["kbIds"]]
     validate_filters(kbs, value.get("metadataFilters", []))
+    if any(not db.get(Skill, skill_id) for skill_id in value["skillIds"]):
+        raise HTTPException(400, "所选 Skill 不存在，请重新选择")
+    value["skillIds"] = list(dict.fromkeys(value["skillIds"]))
+    if len({db.get(Skill, skill_id).name for skill_id in value["skillIds"]}) != len(value["skillIds"]):
+        raise HTTPException(400, "一个应用不能绑定同名的多个 Skill 版本")
+    value["tools"] = list(dict.fromkeys(value["tools"]))
     if role == "manager" and "manager" not in value["visible"]:
         value["visible"].append("manager")
     value["kbIds"] = list(dict.fromkeys(value["kbIds"]))

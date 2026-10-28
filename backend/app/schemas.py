@@ -180,6 +180,8 @@ class ApplicationConfig(BaseModel):
     filters: str = Field(default="", max_length=0)
     outline: str = Field(default="", max_length=6000)
     format: Literal["markdown", "docx"] = "markdown"
+    skillIds: list[str] = Field(default_factory=list, max_length=10)
+    tools: list[Literal["current_time", "calculator"]] = Field(default_factory=list, max_length=2)
 
     @model_validator(mode="after")
     def clean(self):

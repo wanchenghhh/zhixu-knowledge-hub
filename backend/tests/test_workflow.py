@@ -16,7 +16,7 @@ def upload(
     response = client.post(
         f"/api/v1/knowledge/{kb['id']}/upload",
         files={"file": (name, data)},
-        data={"consent": "true", "options": json.dumps({"chunkSize": 200, "overlap": 20})},
+        data={"consent": "true", "options": json.dumps({"chunkSize": 200, "overlap": 20, "extractMetadata": False})},
     )
     assert response.status_code == 200, response.text
     result = response.json()
@@ -166,7 +166,7 @@ def test_upload_consent_duplicate_and_validation(client, knowledge):
     response = client.post(
         f"/api/v1/knowledge/{knowledge['id']}/upload",
         files={"file": ("other.md", b"# Travel\nReimbursement requires invoices and payment receipts.\n")},
-        data={"consent": "true", "options": json.dumps({"chunkSize": 200, "overlap": 20})},
+        data={"consent": "true", "options": json.dumps({"chunkSize": 200, "overlap": 20, "extractMetadata": False})},
     )
     assert response.status_code == 409
     assert client.post("/api/v1/models", json={"apiKey": "test-never-echo"}).status_code == 422

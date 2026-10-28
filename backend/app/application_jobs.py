@@ -101,6 +101,7 @@ def process_run(run_id):
                     },
                     purpose="report_outline",
                     record=record,
+                    agent_config=run.config,
                 )
                 outline = result.get("outline")
                 if (
@@ -178,6 +179,7 @@ def process_run(run_id):
                     f"报告任务：{run.question}\n输入：{run.inputs}\n当前章节：{title}",
                     purpose="report_section",
                     record=record,
+                    agent_config=run.config,
                 )
             else:
                 text = "现有知识库未检索到足够依据，本章节待补充资料。"

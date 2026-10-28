@@ -38,6 +38,8 @@ export interface ApplicationConfig {
   metadataFilters?: import("./MetadataFilters").MetadataFilter[];
   outline: string;
   format: "markdown" | "docx";
+  skillIds?: string[];
+  tools?: string[];
 }
 export interface Application {
   id: string;

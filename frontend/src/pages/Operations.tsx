@@ -266,7 +266,7 @@ export function Tasks() {
                   </p>
                   {detail.usage?.calls?.length ? (
                     <p>
-                      模型调用 {detail.usage.calls.length} 次 · 已返回用量{" "}
+                      调用记录 {detail.usage.calls.length} 次 · 已返回模型用量{" "}
                       {detail.usage.calls.reduce(
                         (n, c) => n + (c.usage?.total_tokens || 0),
                         0,
@@ -715,14 +715,19 @@ export function Logs() {
             ) : null}
             {live && detail.details?.calls?.length ? (
               <>
-                <h4>检索模型用量</h4>
+                <h4>模型、Skill 与工具调用</h4>
                 <div className="drawer-file-list">
                   {detail.details.calls.map((call, index) => (
                     <div key={index}>
                       <span>
-                        {call.type} · {call.model}
+                        {call.type} · {call.name || call.model || "未标注"}
                       </span>
-                      <span>{call.usage?.total_tokens ?? "未知"} Tokens</span>
+                      <span>
+                        {call.status ||
+                          (call.usage
+                            ? `${call.usage.total_tokens ?? "未知"} Tokens`
+                            : "用量未知")}
+                      </span>
                     </div>
                   ))}
                 </div>

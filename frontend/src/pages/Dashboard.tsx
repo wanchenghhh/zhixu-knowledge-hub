@@ -336,7 +336,7 @@ export default function Dashboard() {
       <NewKnowledge
         open={create}
         onClose={() => setCreate(false)}
-        onCreated={(id) => nav(`/knowledge/${id}`)}
+        onCreated={(id) => nav(`/knowledge/${id}/design`)}
       />
     </div>
   );

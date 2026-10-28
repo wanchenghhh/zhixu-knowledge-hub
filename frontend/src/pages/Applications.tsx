@@ -35,6 +35,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { PageHeading } from "../components";
+import SkillTools from "../SkillTools";
 import { useStore } from "../store";
 import { roles } from "../data";
 import {
@@ -409,6 +410,7 @@ export function ApplicationEditor({
             items={[
               { key: "basic", label: "基础配置" },
               { key: "knowledge", label: "知识与检索" },
+              { key: "skills", label: "Skill 与工具" },
               { key: "experience", label: "体验与发布" },
             ]}
           />
@@ -560,6 +562,14 @@ export function ApplicationEditor({
                   />
                 </Form.Item>
               </>
+            ) : null}
+            {tab === "skills" ? (
+              <SkillTools
+                live={live}
+                skillIds={config.skillIds || []}
+                tools={config.tools || []}
+                onChange={patch}
+              />
             ) : null}
             {tab === "experience" ? (
               <>
